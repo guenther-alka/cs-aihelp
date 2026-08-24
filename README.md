@@ -270,25 +270,23 @@ answered with that context.
 
 ```
 Browser (menu page or popup)
-   │  fetch() POST /cgi-bin/cs-aihelp.pl (JSON)
+   │  HTTPS + Bearer (remote: listen/allowed_ip/auth_token)
    ▼
-cs-aihelp.pl (standalone CGI)
-   │  session check (socketlib), member auth
-   │  optional Level-1 live_state via &socket (read-only)
-   │  history load/save (_cfg/aihelp/)
-   ▼
-aihelplib.pl
-   │  light-RAG over data/howto.ai/*.info
+cs-aihelp (Go daemon, port 45555)          ← since v1.0 the AI core
+   │  in-memory RAG index (data/howto.ai/*.info)
    │  optional web research (ddg / api)
    │  provider call: free (Ollama→Pollinations) | provider (anthropic/openai/ollama)
    │  setup fallback provider → free
+   │  chat history (_cfg/aihelp/conv_*.json)
    ▼
-Browser: answer + sources (+ "via free (Fallback)") rendered, no reload
+Browser: answer + sources (+ "via free (Fallback)") rendered (JSON or SSE)
 ```
 
-The module is pure **frontend**: no backend (server.pl) changes, no new
-services. It reuses the existing encrypted `&exe()/&socket()` channel for the
-optional read-only state.
+The frontend UI (menus, settings, popup, chat page) is the thin Perl layer:
+it writes `_cfg/cs-aihelp`, injects the bearer token after login, and the
+browser talks to the daemon. The Perl CGI (`cs-aihelp.pl`) remains as the
+session-gated path used before v1.0 (and for Level-1 live state via the
+encrypted `&exe()/&socket()` channel).
 
 ---
 
