@@ -269,7 +269,8 @@ sent to the model as context.
 
 **Help > AI Helpdesk** opens the full-screen chat page (100% width/height):
 
-- **Toolbar:** **Provider** `plan | act` (slot 2 = exec-capable model),
+- **Toolbar:** **Provider `Plan | Act`** toggle buttons (slot 2 = exec-capable
+  model; popup uses a `plan|act` select + Ask),
   `ro | exec | console` radio (mirrors `exec_access`),
   `propose | confirm | auto` select (mirrors `exec_mode`), **"Plan first"**
   (checked by default — the AI presents a plan and waits for your go-ahead

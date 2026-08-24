@@ -7,9 +7,10 @@
 - **`mode2` / `provider2` / `endpoint2` / `model2` / `api_key2` /
   `free_model2`** — a second provider slot for the **act/exec** model
   (slot 1 = plan/read-only). Empty `mode2` falls back to slot 1. The
-  Helpdesk/popup toolbar offers a **Provider** `plan | act` selector
-  (`provider_use` in the request, answered as `provider_use` in the
-  response); the Go daemon resolves the same way (`applyProviderSlot`).
+  Helpdesk toolbar offers **Provider `Plan | Act` toggle buttons** (the
+  popup a `plan|act` select + Ask) — `provider_use` in the request,
+  answered as `provider_use` in the response; the Go daemon resolves the
+  same way (`applyProviderSlot`).
 - **Settings form** (now top-level menu `12_AI_Helpdesk`, m-key `m12`):
   English element labels + short English hints stay English (Basisregel);
   a detailed, translated **info section after the form** comes from the new

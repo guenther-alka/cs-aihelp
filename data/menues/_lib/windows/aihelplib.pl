@@ -915,7 +915,7 @@ sub ai_chat_js {
     my $js = <<'EoJS';
 <script>
 var _aiId='%%ID%%', _aiMember='%%MEMBER%%', _aiL1='%%L1%%', _aiL2='%%L2%%', _aiL3='%%L3%%', _aiConv='';
-var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%;
+var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%, _aiProvider='plan';
 var _aiT={
   answering:'%%T_ANSWERING%%', error:'%%T_ERROR%%', settings:'%%T_SETTINGS%%',
   ratelimit:'%%T_RATELIMIT%%', proverr:'%%T_PROVERR%%', session:'%%T_SESSION%%',
@@ -956,10 +956,16 @@ function _aiAccessMode(){
   if(m && m.value){ mode=m.value; }
   var plan=false, p=document.getElementById('aihelp_plan');
   if(p){ plan=p.checked; }
-  var provider='plan', pr=document.getElementById('aihelp_provider');
-  if(!pr){ pr=document.getElementById('aihelp_p_provider'); }
-  if(pr && pr.value){ provider=pr.value; }
+  var provider=_aiProvider;
+  if(_aiPopup){ var prp=document.getElementById('aihelp_p_provider'); if(prp && prp.value){ provider=prp.value; } }
   return {access:access, mode:mode, plan:plan, provider:provider};
+}
+function _aiSetProvider(p){
+  _aiProvider=(p==='act')?'act':'plan';
+  var a=document.getElementById('aihelp_pplan');
+  var b=document.getElementById('aihelp_pact');
+  if(a){ a.style.background=(_aiProvider==='plan')?'#234':'#fff'; a.style.color=(_aiProvider==='plan')?'#fff':'#234'; }
+  if(b){ b.style.background=(_aiProvider==='act')?'#234':'#fff'; b.style.color=(_aiProvider==='act')?'#fff':'#234'; }
 }
 function _aiCall(log, question, toolResults){
   if(_aiBusy) return;
@@ -1131,10 +1137,10 @@ sub ai_chat_page {
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6;margin-bottom:6px">
     <b>AI Helpdesk -- $member</b>
     <span style="color:#888;font-size:12px">Provider:</span>
-    <select id="aihelp_provider">
-      <option value="plan" selected>plan</option>
-      <option value="act">act</option>
-    </select>
+    <span id="aihelp_provider" style="display:inline-flex;gap:2px">
+      <button type="button" id="aihelp_pplan" onclick="_aiSetProvider('plan')" style="padding:2px 12px;cursor:pointer;border:1px solid #666;border-radius:3px 0 0 3px;background:#234;color:#fff">Plan</button>
+      <button type="button" id="aihelp_pact" onclick="_aiSetProvider('act')" style="padding:2px 12px;cursor:pointer;border:1px solid #666;border-radius:0 3px 3px 0;background:#fff;color:#234">Act</button>
+    </span>
     <span style="color:#888;font-size:12px">Mode:</span>
     <label><input type="radio" name="aihelp_access" value="ro"$ro_chk> ro</label>
     <label><input type="radio" name="aihelp_access" value="exec"$exec_chk> exec</label>
