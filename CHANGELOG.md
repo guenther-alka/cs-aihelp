@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1 (2026-08-24) — pre-release / release candidate
+
+**Published on GitHub as the newest downloadable release (marked as
+pre-release / RC in the README) so it can be tested before the stable v1.1.0.
+The stable path remains v1.0.2.**
+
+- Same code as **v1.1rc2** (tag `v1.1rc2`, commit `01ca3b5`), released under
+  the clean version tag `v1.1` — binaries report `1.1`, module archive
+  `cs-aihelp-1.1.tar.gz`.
+- Includes everything from v1.1.0 below, plus the CS Tools distribution
+  extension and all commits on `main` since `v1.1rc`.
+
 ## v1.1.0 (2026-08-24)
 
 **Two provider slots (Cline-style) + localised UI (Basisregel) + KISS history.**
