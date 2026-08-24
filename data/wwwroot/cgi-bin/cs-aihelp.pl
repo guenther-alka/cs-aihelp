@@ -64,7 +64,15 @@ $debug = 0;
   require $_lib; }
 
 # -- log ----------------------------------------------------------------
+# Minimal metadata log only. The question text is NEVER written to the log
+# (privacy, secrets). Config key "log" (off|on, default on) can disable it.
+my $ai_log_on = 1;
+{
+    my %_lc = ai_cfg_read();
+    $ai_log_on = (ai_trim($_lc{log} // 'on')) ne 'off' ? 1 : 0;
+}
 sub ai_log {
+    return unless $ai_log_on;
     my $msg = shift // '';
     my $logf = "$tpath/cs-aihelp.log";
     if (open(my $fh, '>>', $logf)) {
@@ -206,8 +214,8 @@ if (defined $r->{error}) {
               mode => $r->{mode} // '', conv => $conv_id,
               via => $r->{via} // '' );
 }
-ai_log(sprintf("q=%s len=%d ok=%d member=%s conv=%s",
-    substr($question, 0, 80), length($question), $resp{ok}, $member, $conv_id));
+ai_log(sprintf("qlen=%d ok=%d member=%s conv=%s",
+    length($question), $resp{ok}, $member, $conv_id));
 
 print "Content-Type: application/json\r\n\r\n" . encode_json(\%resp) . "\n";
 exit;

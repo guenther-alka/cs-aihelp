@@ -67,6 +67,7 @@ sub ai_cfg_defaults {
         research_endpoint => '',    # api mode: URL template with {q} (or auto ?q=)
         research_key  => '',        # api mode: optional key (Bearer / X-API-Key)
         fallback      => 'free',    # off | free -- if mode=provider fails, answer via free tier
+        log           => 'on',      # on = minimal metadata log (never the question text); off = no log
     };
 }
 
@@ -88,6 +89,41 @@ sub ai_esc {
     $s =~ s/>/&gt;/g;
     $s =~ s/"/&quot;/g;
     return $s;
+}
+
+# SSRF guard: allow http(s) only. Blocks private / link-local / reserved /
+# multicast addresses (10/8, 172.16/12, 192.168/16, 169.254/16, 127/8,
+# ::1, fe80::/10, fc00::/7, 0/8, CGNAT 100.64/10, TEST-NET, >=224/8).
+# Loopback stays allowed by default (local Ollama / local search / tests).
+sub _ai_safe_url {
+    my ($url, $allow_loopback) = @_;
+    $allow_loopback = 1 unless defined $allow_loopback;
+    return 0 unless defined $url && $url =~ m{^https?://}i;
+    my ($host) = $url =~ m{^https?://([^/:\s]+)}i;
+    return 0 unless defined $host && $host ne '';
+    $host = lc($host);
+    return 1 if $host eq 'localhost';
+    $host =~ s/^\[|\]$//g;                     # IPv6 brackets
+    if ($host =~ /^\d+\.\d+\.\d+\.\d+$/) {     # IPv4
+        my @o = split(/\./, $host);
+        my ($a, $b) = ($o[0], $o[1]);
+        return $allow_loopback ? 1 : 0 if $a == 127;
+        return 0 if $a == 10;
+        return 0 if $a == 172 && $b >= 16 && $b <= 31;
+        return 0 if $a == 192 && $b == 168;
+        return 0 if $a == 169 && $b == 254;
+        return 0 if $a == 0;
+        return 0 if $a == 100 && $b >= 64 && $b <= 127;
+        return 0 if $a >= 224;
+        return 1;
+    }
+    if ($host =~ /:/) {                        # IPv6
+        return $allow_loopback ? 1 : 0 if $host eq '::1';
+        return 0 if $host =~ /^fe80:/;
+        return 0 if $host =~ /^fc[0-9a-f]{2}:/;
+        return 1;
+    }
+    return 1;                                  # hostname: DNS-level SSRF not covered
 }
 
 ################  read config (auto-create with defaults if missing)
@@ -121,7 +157,7 @@ sub ai_cfg_write {
     mkdir $dir unless -d $dir;          # _cfg/ may be missing on a fresh install
     my @keys = qw(mode provider endpoint model api_key exec_mode tool_use max_context
                   history history_turns free_model widget research research_max
-                  research_endpoint research_key fallback);
+                  research_endpoint research_key fallback log);
     my @lines = (
         '# cs-aihelp configuration -- see data/howto.ai/ai-helpdesk.info',
         '# Written by csweb-gui System > Services > AI Helpdesk.',
@@ -138,9 +174,16 @@ sub ai_cfg_write {
     if (open(my $fh, '>', $path)) {
         print $fh $content;
         close $fh;
+        _ai_chmod0600($path);           # config holds api_key/auth secrets
         return 1;
     }
     return 0;
+}
+
+# owner-only permissions on Unix (no-op on Windows)
+sub _ai_chmod0600 {
+    my ($path) = @_;
+    chmod(0600, $path) unless $^O eq 'MSWin32';
 }
 
 ################  resolve effective provider settings
@@ -327,6 +370,7 @@ sub ai_research_api {
     $max = 5 unless $max && $max > 0;
     my $q = ai_trim($question);
     return () unless $q ne '' && $endpoint ne '';
+    return () unless _ai_safe_url($endpoint, 1);   # SSRF guard
     my $url = $endpoint;
     if ($url =~ /\{q\}/) {
         $url =~ s/\{q\}/uri_escape_utf8($q)/ge;
@@ -395,6 +439,8 @@ sub ai_provider_call {
     my $model    = $resolved->{model}    // 'openai';
     my $key      = $resolved->{api_key}  // '';
     return { error => 'no endpoint configured' } unless $endpoint;
+    return { error => 'endpoint not allowed (SSRF guard)' }
+        unless _ai_safe_url($endpoint, 1);
 
     my ($url, %hdr, $body);
     if ($provider eq 'free') {
@@ -582,7 +628,7 @@ sub ai_history_dir {
     my $base = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
     my $dir = "$base/_cfg/aihelp";
     mkdir "$base/_cfg" unless -d "$base/_cfg";   # _cfg/ may be missing on a fresh install
-    mkdir $dir unless -d $dir;
+    mkdir $dir, 0700 unless -d $dir;
     return $dir;
 }
 
@@ -669,6 +715,7 @@ sub ai_history_save {
     if (open(my $fh, '>', $path)) {
         print $fh $content;
         close $fh;
+        _ai_chmod0600($path);
         return 1;
     }
     return 0;

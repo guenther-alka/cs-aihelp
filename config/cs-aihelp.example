@@ -19,3 +19,4 @@ research_max = 5
 research_endpoint =
 research_key =
 fallback      = free
+log           = on

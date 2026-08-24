@@ -1,19 +1,14 @@
 # ai_helpdesk_test.pl -- functional test for aihelplib.pl (AI Helpdesk)
 # Uses a separate mock HTTP server (ai_mock_server.pl) for the provider call.
 use strict;
-use FindBin qw($RealBin);
 use vars qw($wpath $dpath $tpath %in);
 
-# repo layout: tests/ is a sibling of data/ and config/ -- the repo root
-# stands in for a csweb-gui installation
-(my $root = "$RealBin/..") =~ s{\\}{/}g;
-$wpath = $root;
-$dpath = "$root/data";
-$tpath = "$root/tmp";
-mkdir $tpath unless -d $tpath;
+$wpath = 'C:/opt/csweb-gui';
+$dpath = 'C:/opt/csweb-gui/data';
+$tpath = 'C:/opt/csweb-gui/tmp';
 %in = ( id => 'test', member => 'localhost~127.0.0.1' );
 
-require "$root/data/menues/_lib/windows/aihelplib.pl";
+require 'C:/opt/csweb-gui/data/menues/_lib/windows/aihelplib.pl';
 
 my $pass = 0;
 my $fail = 0;
@@ -170,6 +165,33 @@ my %cfg_nf = ( %cfg, mode => 'provider', provider => 'openai',
 ai_cfg_write(%cfg_nf);
 my $nf = ai_ask('no fallback test', '', '');
 ok(defined $nf->{error}, 'fallback: off -> provider error is returned');
+ai_cfg_write(%cfg);
+
+# ---- 19. SSRF guard (_ai_safe_url) ----
+ok(_ai_safe_url('https://api.openai.com/v1/chat/completions', 1), 'ssrf: public https allowed');
+ok(_ai_safe_url('http://127.0.0.1:11434/api/chat', 1), 'ssrf: loopback allowed');
+ok(_ai_safe_url('http://127.0.0.1:19091/chat', 1), 'ssrf: loopback test port allowed');
+ok(!_ai_safe_url('http://192.168.2.10/chat', 1), 'ssrf: RFC1918 192.168 blocked');
+ok(!_ai_safe_url('http://10.0.0.5/chat', 1), 'ssrf: RFC1918 10/8 blocked');
+ok(!_ai_safe_url('http://172.20.0.3/chat', 1), 'ssrf: RFC1918 172.16/12 blocked');
+ok(!_ai_safe_url('http://169.254.169.254/latest/meta-data', 1), 'ssrf: cloud metadata blocked');
+ok(!_ai_safe_url('ftp://example.com/x', 1), 'ssrf: non-http scheme blocked');
+ok(!_ai_safe_url('file:///etc/passwd', 1), 'ssrf: file scheme blocked');
+
+# ---- 20. provider call rejects a private endpoint (SSRF) ----
+my %cfg_ssrf = ( %cfg, mode => 'provider', provider => 'openai',
+    endpoint => 'http://192.168.2.99/chat', model => 'mock', fallback => 'off', history => 'off' );
+ai_cfg_write(%cfg_ssrf);
+my $srf = ai_ask('ssrf test', '', '');
+ok(defined $srf->{error} && $srf->{error} =~ /not allowed/i,
+   'provider: private endpoint rejected (SSRF guard)');
+ai_cfg_write(%cfg);
+
+# ---- 21. config roundtrip includes log key ----
+my %cfg_log = ( %cfg, log => 'off' );
+ai_cfg_write(%cfg_log);
+my %cfg_log2 = ai_cfg_read();
+ok($cfg_log2{log} eq 'off', 'config: log key roundtrip');
 ai_cfg_write(%cfg);
 
 print "\nRESULT: $pass passed, $fail failed\n";

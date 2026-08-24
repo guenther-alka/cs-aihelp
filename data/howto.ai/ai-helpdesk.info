@@ -59,6 +59,11 @@ CONFIG KEYS (_cfg/cs-aihelp)
   fallback      off | free -- if mode=provider fails (unreachable/wrong key),
                 answer via the free tier instead of an error (default free);
                 such answers are marked "via free (Fallback)"
+  log           on | off -- minimal metadata log (tmp/cs-aihelp.log, never the
+                question text); off = no log (default on)
+  (SSRF guard)  provider endpoint and research_endpoint are validated:
+                http(s) only; private/link-local/reserved addresses are
+                blocked (loopback stays allowed for local Ollama/search)
 
 COMMUNICATION / UX
 ------------------

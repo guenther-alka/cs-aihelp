@@ -48,6 +48,7 @@ sub my_action {
         $kv{research_endpoint} = ai_trim($in{'cfg_research_endpoint'} // '');
         $kv{research_key}      = ai_trim($in{'cfg_research_key'} // '');
         $kv{fallback}          = ai_trim($in{'cfg_fallback'} // 'free');
+        $kv{log}               = ai_trim($in{'cfg_log'} // 'on');
         my $mc = ai_trim($in{'cfg_max_context'} // '');
         $kv{max_context} = ($mc =~ /^\d+$/ && $mc > 0) ? $mc : '8000';
         # keep the existing key if the password field was left empty
@@ -162,6 +163,8 @@ sub my_action {
                   : "nur research=api, falls der Dienst einen Key verlangt (als Bearer/X-API-Key gesendet)") . "\n";
     $rows .= "<b>Fallback (Setup)</b>\t" . $sel->('cfg_fallback', $aicfg{fallback} // 'free', qw(free off))
         . $desc->("falls mode=provider fehlschlaegt (nicht erreichbar/falscher Key): <b>free</b> = automatisch ueber die Free-Stufe antworten (Ollama lokal -> Pollinations), gekennzeichnet als 'via free (Fallback)' | off = Fehlermeldung anzeigen") . "\n";
+    $rows .= "<b>Logging</b>\t" . $sel->('cfg_log', $aicfg{log} // 'on', qw(on off))
+        . $desc->("on = minimales Metadaten-Log (tmp/cs-aihelp.log, <b>ohne</b> Fragetext) | off = kein Log (Datenschutz)") . "\n";
     $rows .= "<b>Kontext-Budget</b>\t<input type='text' name='cfg_max_context' value=\"" . ai_esc($aicfg{max_context} // '8000')
         . "\" style='width:80px'>"
         . $desc->("max. Zeichen des System-Prompts (Doku-Ausschnitte)") . "\n";
