@@ -35,6 +35,9 @@ FILES
   data/menues/10_System/03_CS_Tools/action.pl    download/update menu
   _cfg/cs-aihelp                                 config (key = value)
   _cfg/aihelp/conv_*.json                        chat history (per conversation)
+  lang/{en,de,fr,es,it,ru,cn}/system.txt         settings field descriptions
+                                                 (host-side, ZFS-versioned)
+  lang/{en,de,fr,es,it,ru,cn}/help.txt           help page/popup JS strings
 
 DISTRIBUTION
 ------------
@@ -55,7 +58,7 @@ CONFIG KEYS (_cfg/cs-aihelp)
   model         '' = provider default
   api_key       cloud providers only, never logged
   mode2         '' | free | provider  (slot 2 / act-provider, Cline-style;
-                '' or off = use slot 1; select plan|act in Helpdesk/popup)
+                '' or off = use slot 1; select mode1|mode2 in Helpdesk/popup)
   provider2     openai | anthropic | ollama
   endpoint2 / model2 / api_key2 / free_model2   slot-2 provider settings
   exec_access   ro | exec | console                (default ro; Stufe 2)
@@ -100,14 +103,31 @@ CONFIG KEYS (_cfg/cs-aihelp)
 
 COMMUNICATION / UX
 ------------------
-- Own menu (Help > AI Helpdesk): full chat page with history list (resume),
-  quick questions, copy button, elapsed-time indicator, new-conversation.
-- Floating popup: call &ai_popup(); from any action.pl -> draggable
-  "KI fragen" widget; sends the current menu path (l1/l2/l3) + member as
+- Own menu (Help > AI Helpdesk): full chat page. The toolbar offers a
+  PER-QUESTION choice with two independent axes (freely combinable):
+    provider  mode1 | mode2      which configured slot/model answers
+    mode      plan | act         plan = read-only planning; act = exec-capable
+    actions   propose | confirm | auto
+  Buttons: Ask (send), Abort (stop the agentic loop), Resume (reload the last
+  saved conversation of the member), New (start fresh). Enter inserts a
+  newline; sending happens only via the Ask button (or the quick-question
+  buttons). Quick questions, copy button, elapsed-time indicator.
+- Floating popup "mini AI Helpdesk" (call &ai_popup(); from any action.pl):
+  draggable, [x] closes it, provider select mode1|mode2 before Ask/New,
+  read-only (no exec); sends the current menu path (l1/l2/l3) + member as
   context (context-sensitive help).
-- Request  (browser -> cs-aihelp.pl): { id, member, l1, l2, l3, question, conv }
-- Response: { ok, answer (HTML-escaped server-side), sources, mode, conv }
-- action=load with conv returns the stored conversation for resume.
+- Request  (browser -> cs-aihelp.pl):
+  { id, member, l1, l2, l3, question, conv, provider_use (plan|act = slot 1|2) }
+- Response: { ok, answer (HTML-escaped server-side), sources, mode, conv,
+  provider_use, action }
+- action=load  with conv       -> returns the stored conversation.
+- action=resume (no question)  -> returns the NEWEST saved conversation of
+  the member (used by the Resume button).
+- i18n: simple field labels stay English (Basisregel); explanatory texts and
+  confirm messages are translated via the napp-it lang files (system.txt for
+  the settings menu, help.txt for the help page) in all 7 languages
+  (en = master, <<key>> value, CRLF, UTF-8 no BOM). The detailed field list
+  below the settings form uses ai_f_* keys from system.txt.
 
 CHAT HISTORY
 ------------
@@ -155,8 +175,9 @@ NEXT / PLANNED
 - P2 frontend: browser talks directly to the Go daemon (token injection /
   SSE streaming) instead of the Perl CGI.
 - autostart.pl integration for the daemon.
-- Stufe 2 polish: plan/act as a first-class two-phase flow, per-member
-  exec policies, command audit view.
+- Stufe 2 polish (DONE): per-question provider (mode1/mode2) + mode
+  (plan/act) as a first-class two-phase flow.
+- Per-member exec policies, command audit view.
 - Status-Ampel AI dot is DONE (grey = off, green = ro, blue = exec; local
   read of _cfg/cs-aihelp, click shows mode/exec_access/exec_mode/exec_allow).
 - Go daemon cs-aihelp (streaming/SSE, RAG index in memory) is DONE as the
