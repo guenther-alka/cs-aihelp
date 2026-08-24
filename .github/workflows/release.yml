@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Perl dependency (URI::Escape)
+        run: sudo apt-get update && sudo apt-get install -y liburi-perl
+
+      - name: Syntax check (standalone files)
+        run: |
+          perl -c data/menues/_lib/windows/aihelplib.pl
+          perl -c data/wwwroot/cgi-bin/cs-aihelp.pl
+          perl -c install.pl
+
+      - name: Compile check (action.pl files, admin.pl context shim)
+        run: perl tests/ai_compile_check.pl
+
+      - name: Run functional tests (mock HTTP server)
+        run: tests/run_tests.sh
+
+      - name: Package module archive
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/cs-aihelp
+          cp -r data config tests install.pl README.md LICENSE CHANGELOG.md VERSION dist/cs-aihelp/
+          rm -rf dist/cs-aihelp/tests/*.log dist/cs-aihelp/_cfg dist/cs-aihelp/tmp
+          tar -czf "dist/cs-aihelp-${VERSION}.tar.gz" -C dist cs-aihelp
+          cd dist
+          sha256sum cs-aihelp-*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
