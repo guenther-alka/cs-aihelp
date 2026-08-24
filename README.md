@@ -65,6 +65,46 @@ local or cloud LLM — with or without an API key.
 
 ---
 
+## Go daemon (v1.0) — independent background service
+
+Since v1.0, cs-aihelp ships as a **standalone Go daemon** (`go/`, pure
+standard library, `CGO_ENABLED=0`, built for 8 platforms) with its **own
+memory**: an in-memory RAG index over `data/howto.ai/*.info`, persisted chat
+history (`_cfg/aihelp/conv_*.json`, same format as the Perl frontend) and a
+reloadable in-memory config. It is **always ready in the background** and
+reachable remotely over HTTPS.
+
+```
+cs-aihelp serve   [--listen 0.0.0.0:45555] [--config PATH] [--foreground]
+cs-aihelp ask     --question "..." [--json]
+cs-aihelp status  [--json]
+cs-aihelp stop
+cs-aihelp reindex
+cs-aihelp version
+```
+
+Endpoints (HTTPS, Bearer auth): `GET /health /status /sources?q= /models`,
+`POST /ask` (JSON or `stream=true` → SSE), `POST /reload /reindex`.
+
+Daemon-only config keys (in the same `_cfg/cs-aihelp`):
+
+| Key | Description |
+|---|---|
+| `listen` | `127.0.0.1:45555` (default) · `0.0.0.0:45555` for remote |
+| `allowed_ip` | comma-separated IP/CIDR allowlist; empty = loopback only; `*` = any |
+| `auth_token` | bearer token (mandatory when `listen` is not loopback) |
+| `tls_cert` / `tls_key` | default = the `webserver.pl` certificate (`_cfg/webserver/cert/server.crt`/`.key`) |
+| `cors_origin` | frontend origin for CORS pinning (optional) |
+
+Security: IP allowlist + constant-time bearer-token check, SSRF guard on all
+configured endpoints, TLS with the same certificate the web-GUI uses (so
+remote browsers already trust it), config files written `0600`.
+
+**Deploy:** `data/cs_server/tools/cs-aihelp/<os>.<arch>/cs-aihelp[.exe]`,
+started by `autostart.pl` alongside `server.pl`/`auto.pl`/`monitor.pl`.
+
+---
+
 ## Requirements
 
 - An installed **napp-it cs** web-GUI (default path `/opt/csweb-gui`;

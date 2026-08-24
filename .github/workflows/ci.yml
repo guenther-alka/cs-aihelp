@@ -7,22 +7,33 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  test:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  perl:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Perl dependency (URI::Escape)
         run: sudo apt-get update && sudo apt-get install -y liburi-perl
-
       - name: Syntax check (standalone files)
         run: |
           perl -c data/menues/_lib/windows/aihelplib.pl
           perl -c data/wwwroot/cgi-bin/cs-aihelp.pl
           perl -c install.pl
-
       - name: Compile check (action.pl files, admin.pl context shim)
         run: perl tests/ai_compile_check.pl
-
       - name: Run functional tests (mock HTTP server)
         run: tests/run_tests.sh

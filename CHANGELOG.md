@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.0.0 (2026-08-24)
+
+**cs-aihelp is now an independent Go daemon** (`go/`), built for 8 platforms
+(`CGO_ENABLED=0`), always ready in the background with its own memory
+(in-memory RAG index, persisted chat history, reloadable config).
+
+- CLI: `serve` (HTTPS daemon) · `ask` · `status` · `stop` · `reindex` · `version`.
+- Endpoints: `GET /health /status /sources /models`, `POST /ask` (JSON/SSE),
+  `POST /reload /reindex`.
+- Remote reachable over HTTPS using the `webserver.pl` certificate
+  (`_cfg/webserver/cert/server.crt`/`.key`).
+- Security: IP allowlist (`allowed_ip`) + constant-time bearer token
+  (`auth_token`), SSRF guard on configured endpoints, config files `0600`.
+- All AI features ported from the Perl module: free/provider + fallback, RAG,
+  web research (ddg/api), chat history, Level 1 read-only diagnostics.
+- Security audit fixes (from the pre-implementation audit):
+  - SSRF guard (provider + research endpoints),
+  - `chmod 0600` on config/history,
+  - no question text in logs (new `log` config key).
+- Tests: Go unit tests (`go test ./...`) + Perl functional suite (49 checks).
+- GitHub Actions: CI (Go vet+test, Perl tests) and Release (8-platform Go
+  binaries + module archive + checksums).
+
 ## v0.5 (2026-08-24)
 
 Initial public release of the **cs-aihelp** AI Helpdesk module for napp-it cs.

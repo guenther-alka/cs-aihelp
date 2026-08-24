@@ -10,26 +10,86 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  go-build:
+    name: Go build (${{ matrix.platform }}.${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            arch: amd64
+            platform: mswin
+            ext: .exe
+          - goos: linux
+            arch: amd64
+            platform: linux
+            ext: ""
+          - goos: linux
+            arch: arm64
+            platform: linux
+            ext: ""
+          - goos: illumos
+            arch: amd64
+            platform: illumos
+            ext: ""
+          - goos: solaris
+            arch: amd64
+            platform: solaris
+            ext: ""
+          - goos: freebsd
+            arch: amd64
+            platform: freebsd
+            ext: ""
+          - goos: darwin
+            arch: amd64
+            platform: darwin
+            ext: ""
+          - goos: darwin
+            arch: arm64
+            platform: darwin
+            ext: ""
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Test
+        run: go test ./...
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p "dist/cs-aihelp/${{ matrix.platform }}.${{ matrix.arch }}"
+          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+            -o "dist/cs-aihelp/${{ matrix.platform }}.${{ matrix.arch }}/cs-aihelp${{ matrix.ext }}" .
+          tar -czf "dist/cs-aihelp-${{ matrix.platform }}.${{ matrix.arch }}.tar.gz" \
+            -C "dist/cs-aihelp" "${{ matrix.platform }}.${{ matrix.arch }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs-aihelp-${{ matrix.platform }}.${{ matrix.arch }}
+          path: go/dist/cs-aihelp-${{ matrix.platform }}.${{ matrix.arch }}.tar.gz
+
+  perl-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Perl dependency (URI::Escape)
         run: sudo apt-get update && sudo apt-get install -y liburi-perl
-
-      - name: Syntax check (standalone files)
+      - name: Syntax check
         run: |
           perl -c data/menues/_lib/windows/aihelplib.pl
           perl -c data/wwwroot/cgi-bin/cs-aihelp.pl
           perl -c install.pl
-
-      - name: Compile check (action.pl files, admin.pl context shim)
-        run: perl tests/ai_compile_check.pl
-
-      - name: Run functional tests (mock HTTP server)
+          perl tests/ai_compile_check.pl
+      - name: Run tests (mock HTTP server)
         run: tests/run_tests.sh
-
       - name: Package module archive
         run: |
           set -e
@@ -38,10 +98,26 @@ jobs:
           cp -r data config tests install.pl README.md LICENSE CHANGELOG.md VERSION dist/cs-aihelp/
           rm -rf dist/cs-aihelp/tests/*.log dist/cs-aihelp/_cfg dist/cs-aihelp/tmp
           tar -czf "dist/cs-aihelp-${VERSION}.tar.gz" -C dist cs-aihelp
-          cd dist
-          sha256sum cs-aihelp-*.tar.gz > checksums.txt
-          cat checksums.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs-aihelp-module
+          path: dist/cs-aihelp-*.tar.gz
 
+  release:
+    needs: [go-build, perl-package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

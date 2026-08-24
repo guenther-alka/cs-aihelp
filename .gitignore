@@ -3,4 +3,7 @@
 /_cfg/
 /tmp/
 /dist/
+/go/dist/
+/go/cs-aihelp
+/go/cs-aihelp.exe
 *.log
