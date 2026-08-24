@@ -1,0 +1,158 @@
+================================================================================
+  SMB / NFS Enable - OS-specific implementation
+================================================================================
+
+ARCHITECTURE
+-----------
+  sharelib.pl       sharelib_set_smbshare, sharelib_unset_smbshare
+  zfslib.pl         prop=sharenfs (NFS), prop=smb_share: -> sharelib
+  server.pl         get_smb_conf() -> detects ksmbd or Samba
+  $sc               return value of exe("sc") = path to the SMB config file
+
+SMB ENABLE
+----------
+  Entry point: prop=smb_share: -> sharelib_set_smbshare
+
+  Windows (MSWin):
+    New-SmbShare via PowerShell:
+      New-SmbShare -Name $name -Path "D:\fs" -fullAccess "$admins" -changeaccess "$users"
+    Drive letter: zfs get driveletter Pool/fs or Pool
+    Groups: Get-LocalGroup | Select SID (544=Admin, 545=User)
+    Note: driveletter='off' or '-' -> message, do it manually in Computer
+    Management
+
+  Linux (ksmbd or Samba):
+    get_smb_conf() priority: see the "SC/ON CONSISTENCY" section below
+    (cs_26.07.02 -- priority is now $smb-dependent, no longer a plain
+    file-existence check).
+    ksmbd:  systemctl restart ksmbd
+    Samba:  systemctl restart smbd   (NOT "samba" -- that is not a valid
+            systemd unit name on Debian/Ubuntu/Proxmox, see below)
+    TrueNAS: midclt call service.restart cifs
+    Config: rcmd:writefile::/etc/samba/smb.conf::[share]\npath=...
+
+  FreeBSD:
+    Samba: service samba_server restart
+    Config: smb4.conf in /usr/local/etc/
+
+  Illumos/OmniOS:
+    zfs set sharesmb=name=$name[,abe=true] $zfs
+    no smb.conf -- OS-native SMB
+    svcadm restart smb/server
+
+  Oracle Solaris 11:
+    zfs set share=name=$name,path=/fs,prot=smb[,guestok=true] $zfs
+    zfs set sharesmb=on $zfs
+    svcadm restart smb/server
+
+NFS ENABLE
+----------
+  Entry point: prop=sharenfs -> zfslib.pl
+
+  Illumos/OmniOS ("solaris;illumos" in the on-string):
+    /Solaris/i matches -> Solaris branch
+    /Solaris.11/ does NOT match -> else branch:
+      zfs set sharenfs=$text $zfs   (on/off or options)
+    CORRECT: no share= command (Oracle Solaris 11 only)
+
+  Oracle Solaris 11:
+    zfs set share=name=NFS-$ds,path=/$zfs,prot=nfs[,options] $zfs
+    zfs set sharenfs=on $zfs
+
+  FreeBSD:
+    edit /etc/exports (rcmd:writefile)
+    service nfsd restart 2>/dev/null || service nfs restart
+
+  Linux (Proxmox, Debian, ...):
+    edit /etc/exports (rcmd:writefile)
+    systemctl enable nfs-kernel-server || systemctl enable nfs-server
+    systemctl restart nfs-kernel-server || systemctl restart nfs-server
+
+KSMBD DETECTION
+---------------
+  server.pl get_smb_conf() (BEFORE cs_26.07.02, only still relevant when
+  $smb was not set beforehand, e.g. the BSD branch):
+    1. -f /etc/ksmbd/ksmbd.conf  -> return path (ksmbd has PRIORITY due to RDMA)
+    2. find /etc/samba smb.conf  -> Linux Samba
+    3. find /usr smb.conf        -> TrueNAS
+    4. find /usr/local smb4.conf -> FreeBSD
+    5. find /opt smb.conf        -> OmniOS Samba
+  sharelib.pl: samba_conf =~/ksmbd/ -> samba_restart = systemctl restart ksmbd
+
+================================================================================
+  SC/ON CONSISTENCY -- systemd active-service detection (cs_26.07.02)
+================================================================================
+
+  BUG FOUND THIS SESSION (real host: proxmox_2, Proxmox/Debian, ksmbd kernel
+  module loaded):
+    - "on" reported smb="ksmbd" (kernel module loaded, via lsmod check)
+    - "sc" (get_smb_conf()) returned /etc/samba/smb.conf anyway, because
+      /etc/ksmbd/ksmbd.conf did not exist yet -- get_smb_conf() only
+      preferred ksmbd.conf if the FILE already existed, independent of what
+      "on" reported.
+    - Every smb_share write therefore landed in Samba's config, which
+      nothing was reading.
+    - Additionally, the restart command used "systemctl restart samba" --
+      not a valid systemd unit name on Debian/Ubuntu/Proxmox (that's an
+      Illumos/Solaris SMF naming convention; the actual unit is "smbd").
+      The restart therefore always failed silently, so even writes to the
+      correct file (smb.conf) would never have taken effect.
+    - It further turned out Samba's daemon package wasn't even installed on
+      that host at all (`systemctl status smbd` -> "Unit smbd.service could
+      not be found.") -- confirmed via `ss -tlnp | grep :445` returning
+      nothing (no SMB listener at all).
+
+  FIX (server.pl, my_os() Linux branch + get_smb_conf()):
+    $smb is now determined via `systemctl is-active smbd`/`ksmbd`
+    (authoritative -- reflects what's ACTUALLY serving, not just installed
+    or kernel-module-loaded) BEFORE get_smb_conf() runs. The old ps/lsmod
+    heuristic is kept as a fallback only for non-systemd hosts or when
+    systemctl reports nothing active yet.
+    get_smb_conf() now checks $smb first: if $smb eq "ksmbd", it always
+    returns /etc/ksmbd/ksmbd.conf -- even if the file doesn't exist on disk
+    yet -- instead of silently falling through to the Samba file-existence
+    search. This guarantees "sc" and "on" can never disagree again for any
+    caller that determines $smb before calling get_smb_conf() (currently:
+    the Linux branch; BSD/other branches don't set $smb first, so
+    get_smb_conf() falls through to the original file-existence logic for
+    them, unchanged).
+
+  FIX (modifier.pl full_smb_share(), same session, frontend side):
+    Independently also checks $current{'on'}/$in{'on'} =~ /ksmbd/i and
+    hardcodes /etc/ksmbd/ksmbd.conf + "systemctl restart ksmbd" when true,
+    creating the file if missing -- this predates the server.pl fix above
+    and is now technically redundant with it, but left in place as a
+    harmless defense-in-depth check (also useful if a member is running an
+    older server.pl that hasn't received this fix yet). Also fixed:
+    "systemctl restart samba" -> "systemctl restart smbd" for the
+    non-ksmbd/non-BSD branch, and _is_zfs_error() broadened to also catch
+    systemd's "Failed to restart ..."/"...could not be found." wording
+    (previously silently treated as success -- neither starts with
+    "error"/"cannot "/"timeout").
+
+================================================================================
+  TODO (not yet implemented -- Gea request 2026.07.29): SMB share
+  enable should verify/add a required PAM line on Solaris/illumos
+================================================================================
+
+  When enabling an SMB share on Solaris or illumos, the PAM config must
+  contain a line enabling pam_smb_passwd.so.1, or SMB auth fails. Check
+  should run as part of the SMB-share-enable flow (modifier.pl
+  full_smb_share() or sharelib.pl, wherever the Solaris/illumos SMB
+  enable branch lives) and append the line if missing:
+
+  Solaris: /etc/pam.d/other must contain (append at end if missing):
+      password required   pam_smb_passwd.so.1 nowarn
+
+  Illumos: /etc/pam.conf must contain (append at end if missing):
+      other   password required   pam_smb_passwd.so.1 nowarn
+
+  Not yet implemented -- this is a reminder/spec only. Next session:
+  find the Solaris/illumos SMB-enable code path, add a check (read the
+  file via &exe("cat ...") through the now-fixed server.pl cat
+  fast-path, or via socket "on"-based OS branch already used elsewhere)
+  and append the line via the existing rcmd:writefile mechanism if the
+  exact line isn't already present. Idempotent -- must not duplicate
+  the line on repeated SMB-enable calls.
+================================================================================
+

@@ -1,0 +1,6 @@
+# runtime artifacts (test writes config/history under the repo root when run
+# from the checkout)
+/_cfg/
+/tmp/
+/dist/
+*.log
