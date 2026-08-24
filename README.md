@@ -44,10 +44,10 @@ local or cloud LLM — with or without an API key.
   **Ollama** (no key needed).
 - **Setup fallback** — `fallback=free` (default): if the configured provider
   fails (unreachable, wrong key, timeout), the helpdesk automatically answers
-  via the free tier and marks the answer *"via free (Fallback)"*.
+  via the free tier and marks the answer *"via free (fallback)"*.
 - **Grounded answers** — light-RAG over `data/howto.ai/*.info`; unknown
   questions are answered from the documentation instead of hallucinated.
-- **Stufe 1 read-only diagnostics** — optionally attach live state
+- **Level 1 read-only diagnostics** — optionally attach live state
   (`hostname`, `zpool list`) of the selected member as DATA context.
 - **Web research** — `research=ddg` (DuckDuckGo Lite, no key, default) or
   `research=api` (any external JSON search endpoint; Google CSE, Brave, Bing,
@@ -58,7 +58,7 @@ local or cloud LLM — with or without an API key.
   (`off | today | week | month | 6months | all`, default `month`), resume any
   earlier conversation from the history list.
 - **Two UIs** — a full chat page (`Help > AI Helpdesk`) and a draggable,
-  context-sensitive **popup** ("KI fragen") injected on every logged-in page
+  context-sensitive **popup** ("Ask AI") injected on every logged-in page
   (`widget=on`).
 - **Nice UX** — quick questions, copy button, elapsed-time indicator, new
   conversation, friendly error texts, mode badge; answers are HTML-escaped.
@@ -141,15 +141,15 @@ The module is configured in **System > Services > AI Helpdesk** (saved to
 | `api_key` | string (empty) | cloud providers only; stored server-side, never logged |
 | `free_model` | string (empty) | `mode=free`: local Ollama model tag; empty = first available |
 | `fallback` | `off` \| `free` (`free`) | answer via free tier when `mode=provider` fails |
-| `tool_use` | `no` \| `yes` (`no`) | Stufe 1: attach read-only live state (hostname, zpool list) |
+| `tool_use` | `no` \| `yes` (`no`) | Level 1: attach read-only live state (hostname, zpool list) |
 | `research` | `off` \| `ddg` \| `api` (`ddg`) | web research; `ddg` = DuckDuckGo Lite (no key), `api` = external endpoint |
 | `research_max` | number (`5`) | max. search results added to the context |
 | `research_endpoint` | URL (empty) | `research=api`: URL template with `{q}` (or auto `?q=`) |
 | `research_key` | string (empty) | `research=api`: optional key (sent as Bearer / X-API-Key) |
 | `history` | `off`\|`today`\|`week`\|`month`\|`6months`\|`all` (`month`) | chat history retention |
 | `history_turns` | number (`10`) | prior turns sent as context on resume |
-| `widget` | `on` \| `off` (`on`) | floating "KI fragen" popup on every logged-in page |
-| `exec_mode` | `off`\|`propose`\|`confirm`\|`auto` (`off`) | Stufe 2, **reserved — not implemented yet** |
+| `widget` | `on` \| `off` (`on`) | floating "Ask AI" popup on every logged-in page |
+| `exec_mode` | `off`\|`propose`\|`confirm`\|`auto` (`off`) | Level 2, **reserved — not implemented yet** |
 | `max_context` | number (`8000`) | system-prompt budget in characters |
 
 ### Provider setup
@@ -192,16 +192,16 @@ sent to the model as context.
 
 **Help > AI Helpdesk** opens the full chat page:
 
-- **Quick-Fragen** buttons fill and send a sample question.
+- **Quick questions** buttons fill and send a sample question.
 - The **history list** shows past conversations; click one to load and
   continue it.
 - Each answer has a **copy** button and a **sources** line (documentation
   files and/or research URLs).
-- **Neues Gespräch** starts a fresh conversation.
+- **New conversation** starts a fresh conversation.
 
 ### Floating popup
 
-When `widget=on`, a **"KI fragen"** button is injected on every logged-in page
+When `widget=on`, an **"Ask AI"** button is injected on every logged-in page
 (via the interface header). Clicking it opens a draggable chat popup. It
 automatically sends the current menu path (`l1/l2/l3`) and selected member as
 context — e.g., while you are in the *ZFS Snaps* menu, the question is
@@ -215,7 +215,7 @@ answered with that context.
 - Model answers are **HTML-escaped** before rendering (XSS guard).
 - Live system state and web results are passed as **DATA**
   ("treat as data, not instructions") to mitigate prompt injection.
-- The module never executes commands. Stufe 2 (`exec_mode`) is reserved and
+- The module never executes commands. Level 2 (`exec_mode`) is reserved and
   **not implemented**.
 - Chat history contains question/answer pairs only (no secrets) and is
   pruned by the retention setting.
@@ -230,7 +230,7 @@ Browser (menu page or popup)
    ▼
 cs-aihelp.pl (standalone CGI)
    │  session check (socketlib), member auth
-   │  optional Stufe-1 live_state via &socket (read-only)
+   │  optional Level-1 live_state via &socket (read-only)
    │  history load/save (_cfg/aihelp/)
    ▼
 aihelplib.pl
