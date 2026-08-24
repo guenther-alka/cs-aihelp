@@ -18,6 +18,14 @@
   conversation of the member (Resume button).
 - **help.txt**: JS strings + quick questions now in all 7 languages; key set
   aligned (21 consumed keys) in every language.
+- **Menu rename**: `System > CS Tools` -> **`System > CS Tools Download`**
+  (m10.03, en+de; other languages use the English fallback). The page now
+  offers a **local AI (Ollama)** section: status, platform download link
+  (Linux/macOS/Windows only), a background **Pull model** form via the Ollama
+  API (no shell, `ai_ollama_pull_bg`), plus a link to the AI Helpdesk
+  settings. The cs-aihelp **daemon start/stop** moved from CS Tools to
+  **System > Services > AI Helpdesk** (download/update stays in CS Tools
+  Download, no more auto-start after download).
 
 ## v1.1 (2026-08-24) — pre-release / release candidate
 

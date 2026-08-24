@@ -29,7 +29,8 @@ FILES
   data/menues/_lib/windows/aihelplib.pl          config, RAG, provider call,
                                                  chat JS/page/popup
   data/menues/_lib/windows/cstoolslib.pl         CS tools registry + GitHub
-                                                 download (System > CS Tools)
+                                                 download (System > CS Tools
+                                                 Download)
   data/menues/05_Help/00_AI_Helpdesk/action.pl   full chat page (first in Help)
   data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl  settings
   data/menues/10_System/03_CS_Tools/action.pl    download/update menu
@@ -42,13 +43,17 @@ FILES
 DISTRIBUTION
 ------------
   cs-aihelp is NOT bundled in napp-it cs. The Go daemon binary is downloaded
-  from GitHub via System > CS Tools ("download/update"); the settings menu
-  shows "please download CS tools first" when it is missing. Only the binary
-  for the FRONTEND OS is fetched and installed KEEPING the OS structure:
+  from GitHub via System > CS Tools Download ("download/update"); the settings
+  menu shows "please download CS tools first" when it is missing. Only the
+  binary for the FRONTEND OS is fetched and installed KEEPING the OS structure:
   data/cs_server/tools/cs-aihelp/<platform>.<arch>/cs-aihelp[.exe]
   (legacy flat installs still work). This keeps csweb-gui/data portable --
   after copying it to another OS the matching binary is resolved there and
-  can be fetched via CS Tools if missing.
+  can be fetched via CS Tools Download if missing.
+  CS Tools Download also manages the LOCAL AI (Ollama): status, platform
+  download link (Linux/macOS/Windows only) and a background "Pull model"
+  form via the Ollama API (no shell). Daemon start/stop lives in
+  System > Services > AI Helpdesk.
 
 CONFIG KEYS (_cfg/cs-aihelp)
 ----------------------------

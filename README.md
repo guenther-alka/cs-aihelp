@@ -176,19 +176,21 @@ perl install.pl /opt/csweb-gui     # default target is /opt/csweb-gui
 | `data/menues/_lib/windows/cstoolslib.pl` | CS tools registry + GitHub download |
 | `data/menues/05_Help/00_AI_Helpdesk/action.pl` | chat menu (first item in Help) |
 | `data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl` | settings menu |
-| `data/menues/10_System/03_CS_Tools/action.pl` | **System > CS Tools** download/update menu |
+| `data/menues/10_System/03_CS_Tools/action.pl` | **System > CS Tools Download** download/update menu (incl. local AI / Ollama) |
 | `data/howto.ai/ai-helpdesk.info` | module documentation |
 | `config/cs-aihelp.example` → `_cfg/cs-aihelp` | default config (only if absent) |
 
 **cs-aihelp is not bundled in napp-it cs.** The Go daemon binary is
-downloaded from GitHub via **System > CS Tools** ("download/update") — on
+downloaded from GitHub via **System > CS Tools Download** ("download/update") — on
 first use the settings menu shows *"please download CS tools first"*. The
 newest release on GitHub is **v1.1 (pre-release / release candidate)** and
 will be fetched; it is tested but not yet the final v1.1.0. Only
 the binary for the **frontend OS** is fetched; it is installed keeping the
 **OS structure** (`data/cs_server/tools/cs-aihelp/<platform>.<arch>/`), so
 `csweb-gui/data` can be copied to another OS — there the matching binary is
-resolved (and fetched in CS Tools if missing).
+resolved (and fetched in CS Tools Download if missing). The same page offers
+**local AI (Ollama)** download/setup (Linux/macOS/Windows) and a background
+model pull; the daemon start/stop lives in **System > Services > AI Helpdesk**.
 
 Alternatively, copy the files manually into the same paths. **No restart is
 needed** for the menus (napp-it cs scans menu folders per request); the config

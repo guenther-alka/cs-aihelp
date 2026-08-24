@@ -20,7 +20,7 @@ sub my_action {
 
     my $member = $in{'member'};
     my $base   = "/cgi-bin/admin.pl?id=$in{'id'}&member=$in{'member'}&l1=$in{'l1'}&l2=$in{'l2'}&l3=$in{'l3'}";
-    print "<script language='javascript'>\$('#hl').html('CS Tools -- $member')</script>\n";
+    print "<script language='javascript'>\$('#hl').html('CS Tools Download -- $member')</script>\n";
 
     # --------------------------------------------------------- download action
     if (($in{'download'} // '') ne '') {
@@ -32,30 +32,28 @@ sub my_action {
             : "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>")
             . ai_esc($msg) . "</div><br><br>\n";
         if ($ok && $tool eq 'aihelp') {
-            my $w  = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
-            my $bin = ai_daemon_bin();
-            if (-f $bin) {
-                my $out = `"$bin" start --config "$w/_cfg/cs-aihelp" 2>&1`;
-                $out = ai_trim($out // '');
-                print "<span style='color:#888;font-size:11px'>" . ai_esc($out) . "</span><br><br>\n" if $out ne '';
-            }
+            print "<span style='color:#888;font-size:11px'>cs-aihelp downloaded -- configure/start it under System &gt; Services &gt; AI Helpdesk.</span><br><br>\n";
         }
         print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 2500);</script>\n";
         &log_end;
         return;
     }
 
-    # ------------------------------------------------- daemon start/stop action
-    if (($in{'daemon'} // '') =~ /^(start|stop)$/) {
-        my $w   = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
-        my $bin = ai_daemon_bin();
-        my $out = (-f $bin)
-            ? `"$bin" $1 --config "$w/_cfg/cs-aihelp" 2>&1`
-            : 'daemon not installed -- please download CS tools first';
-        $out = ai_trim($out // '');
+    # ------------------------------------------------- ollama pull (background)
+    if (($in{'ollama_pull'} // '') eq '1') {
+        my $model = ai_trim($in{'ollama_model'} // '');
+        $model =~ s/[^A-Za-z0-9:._-]//g;
+        my ($ok, $msg);
+        if ($model eq '') {
+            ($ok, $msg) = (0, 'no model name');
+        } elsif (ai_ollama_pull_bg($model)) {
+            ($ok, $msg) = (1, "pulling '$model' in the background -- refresh this page later to see it in the model list");
+        } else {
+            ($ok, $msg) = (0, 'could not start the pull (Ollama not reachable?)');
+        }
         print "<div style='color:#060;background:#dfd;border:1px solid #6a6;border-radius:4px;padding:6px 10px;display:inline-block'>"
-            . ai_esc($out) . "</div><br><br>\n";
-        print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 1500);</script>\n";
+            . ai_esc($msg) . "</div><br><br>\n";
+        print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 2500);</script>\n";
         &log_end;
         return;
     }
@@ -70,18 +68,6 @@ sub my_action {
             . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
             . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
             . "<input type='hidden' name='download' value=\"" . ai_esc($tool) . "\">"
-            . "<input type='submit' value=\"" . ai_esc($label) . "\"></form>";
-    };
-    my $daemon_form = sub {
-        my ($cmd, $label) = @_;
-        return "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
-            . "<input type='hidden' name='member' value=\"" . ai_esc($in{'member'}) . "\">"
-            . "<input type='hidden' name='id' value=\"" . ai_esc($in{'id'}) . "\">"
-            . "<input type='hidden' name='l1' value=\"" . ai_esc($in{'l1'}) . "\">"
-            . "<input type='hidden' name='l2' value=\"" . ai_esc($in{'l2'}) . "\">"
-            . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
-            . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
-            . "<input type='hidden' name='daemon' value=\"" . ai_esc($cmd) . "\">"
             . "<input type='submit' value=\"" . ai_esc($label) . "\"></form>";
     };
 
@@ -104,36 +90,48 @@ sub my_action {
     print "<b>CS tools (GitHub download/update)</b><br>\n";
     print "<table width='100%' style='border-collapse:collapse;border:1px solid #ccc'>$rows</table><br>\n";
 
-    # ---- table 2: AI Helpdesk local management ----
-    my ($ai_present, $ai_ver) = cstools_installed('aihelp');
-    my $ai_run = 0;
-    if ($ai_present) {
-        my $w = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
-        my $listen = '127.0.0.1:45555';
-        if (open(my $fh, '<', "$w/_cfg/cs-aihelp")) {
-            while (my $l = <$fh>) { if ($l =~ /^listen\s*=\s*(\S+)/) { $listen = $1; last; } }
-            close $fh;
-        }
-        require IO::Socket::INET;
-        my $sock = IO::Socket::INET->new(PeerAddr => $listen, Timeout => 1);
-        if ($sock) { close $sock; $ai_run = 1; }
+    # ---- table 2: local AI (Ollama) download / configure ----
+    # The cs-aihelp Go daemon itself is managed under System > Services >
+    # AI Helpdesk (download/update of the daemon stays in table 1 above).
+    my ($ollama_models, $ollama_ok) = ai_ollama_models();
+    my $ollama_status = $ollama_ok
+        ? "<span style='color:darkgreen'><b>running</b></span> (127.0.0.1:11434)"
+        : "<span style='color:#a00'><b>not installed / not running</b></span>";
+    my $ollama_models_html = $ollama_ok
+        ? (@$ollama_models ? ai_esc(join(', ', @$ollama_models)) : '<i>no models pulled yet</i>')
+        : '';
+    my $os = lc($^O);
+    my $ollama_dl;
+    if ($os =~ /mswin/) {
+        $ollama_dl = "<a href='https://ollama.com/download/OllamaSetup.exe' target='_blank'><b>Download Ollama (Windows)</b></a>";
+    } elsif ($os =~ /darwin/) {
+        $ollama_dl = "<a href='https://ollama.com/download/Ollama-darwin.zip' target='_blank'><b>Download Ollama (macOS)</b></a>";
+    } elsif ($os =~ /linux/) {
+        $ollama_dl = "<code>curl -fsSL https://ollama.com/install.sh | sh</code>";
+    } else {
+        $ollama_dl = "<span style='color:#888'>Ollama runs on Linux/macOS/Windows only -- on this OS use a remote Ollama (OLLAMA_BASE) or the free (Pollinations) fallback.</span>";
+    }
+    my $pull_form = '';
+    if ($ollama_ok) {
+        $pull_form = "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
+            . "<input type='hidden' name='member' value=\"" . ai_esc($in{'member'}) . "\">"
+            . "<input type='hidden' name='id' value=\"" . ai_esc($in{'id'}) . "\">"
+            . "<input type='hidden' name='l1' value=\"" . ai_esc($in{'l1'}) . "\">"
+            . "<input type='hidden' name='l2' value=\"" . ai_esc($in{'l2'}) . "\">"
+            . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
+            . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
+            . "<input type='hidden' name='ollama_pull' value='1'>"
+            . "<input type='text' name='ollama_model' value='llama3.1' style='width:180px' title='model tag, e.g. llama3.1, qwen2.5, mistral'>"
+            . " <input type='submit' value='Pull model' style='padding:2px 8px'></form>";
     }
     my $settings_link = "/cgi-bin/admin.pl?id=" . ai_esc($in{'id'}) . "&amp;member=" . ai_esc($member || '')
         . "&amp;l1=10&amp;l2=05&amp;l3=12";
-    my $ai_status = $ai_present
-        ? ai_esc($ai_ver) . ' &nbsp; <b>' . ($ai_run
-            ? "<span style='color:darkgreen'>running</span>"
-            : "<span style='color:#b26a00'>stopped</span>") . '</b>'
-        : "<span style='color:#a00'>not installed</span>";
-    my $ai_actions = "<a href=\"$settings_link\"><b>Settings</b></a> &nbsp; "
-        . ($ai_run ? $daemon_form->('stop', 'Stop') : $daemon_form->('start', 'Start')) . ' &nbsp; '
-        . $dl_form->('aihelp', 'Update');
-    my $ai_rows = "<tr style='background:#eee'><th style='text-align:left;padding:4px 8px'>AI Helpdesk</th>"
+    my $ai_rows = "<tr style='background:#eee'><th style='text-align:left;padding:4px 8px'>Local AI</th>"
         . "<th style='text-align:left;padding:4px 8px'>Status</th>"
-        . "<th style='text-align:left;padding:4px 8px'>Actions</th></tr>\n"
-        . "<tr><td style='padding:4px 8px'>cs-aihelp daemon<br><span style='color:#888;font-size:11px'>Setup, status, start/stop and update of the local daemon.</span></td>"
-        . "<td style='padding:4px 8px'>$ai_status</td>"
-        . "<td style='padding:4px 8px'>$ai_actions</td></tr>\n";
+        . "<th style='text-align:left;padding:4px 8px'>Download / configure</th></tr>\n"
+        . "<tr><td style='padding:4px 8px'>Ollama (local LLM)<br><span style='color:#888;font-size:11px'>Download/install Ollama and pull a local model for the AI Helpdesk. The cs-aihelp daemon itself is managed under System &gt; Services &gt; AI Helpdesk.</span></td>"
+        . "<td style='padding:4px 8px'>$ollama_status<br><span style='color:#888;font-size:11px'>$ollama_models_html</span></td>"
+        . "<td style='padding:4px 8px'>$ollama_dl<br><br>$pull_form<br><a href=\"$settings_link\"><b>AI Helpdesk settings</b></a></td></tr>\n";
     print "<b>AI Helpdesk (local)</b><br>\n";
     print "<table width='100%' style='border-collapse:collapse;border:1px solid #ccc'>$ai_rows</table><br>\n";
 

@@ -27,6 +27,21 @@ sub my_action {
 
     my %aicfg = ai_cfg_read();
 
+    # ------------------------------------------------- daemon start/stop (L2)
+    if (($in{'daemon'} // '') =~ /^(start|stop)$/) {
+        my $w   = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
+        my $bin = ai_daemon_bin();
+        my $out = (-f $bin)
+            ? `"$bin" $1 --config "$w/_cfg/cs-aihelp" 2>&1`
+            : 'cs-aihelp daemon not installed -- download it under System > CS Tools Download';
+        $out = ai_trim($out // '');
+        print "<div style='color:#060;background:#dfd;border:1px solid #6a6;border-radius:4px;padding:6px 10px;display:inline-block'>"
+            . ai_esc($out) . "</div><br><br>\n";
+        print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 1500);</script>\n";
+        &log_end;
+        return;
+    }
+
     # ---------------------------------------------------------------- save
     if ($in{'answered'}) {
         my %kv;
@@ -95,18 +110,31 @@ sub my_action {
                             : '<i>no endpoint (off)</i>';
 
     # daemon binary status (cs-aihelp is NOT bundled; downloaded via
-    # System > CS Tools -- the menu only points there).
+    # System > CS Tools Download -- start/stop happens here).
     my ($d_bin, $d_ver) = ai_daemon_status();
     my $daemon_html;
     if ($d_bin) {
-        $daemon_html = "<span style='color:darkgreen'><b>installed</b></span> " . ai_esc($d_ver);
+        my $daemon_form = sub {
+            my ($cmd, $label) = @_;
+            return "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
+                . "<input type='hidden' name='member' value=\"" . ai_esc($in{'member'}) . "\">"
+                . "<input type='hidden' name='id' value=\"" . ai_esc($in{'id'}) . "\">"
+                . "<input type='hidden' name='l1' value=\"" . ai_esc($in{'l1'}) . "\">"
+                . "<input type='hidden' name='l2' value=\"" . ai_esc($in{'l2'}) . "\">"
+                . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
+                . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
+                . "<input type='hidden' name='daemon' value=\"" . ai_esc($cmd) . "\">"
+                . "<input type='submit' value=\"" . ai_esc($label) . "\"></form>";
+        };
+        $daemon_html = "<span style='color:darkgreen'><b>installed</b></span> " . ai_esc($d_ver)
+            . " &nbsp; " . $daemon_form->('start', 'Start') . ' ' . $daemon_form->('stop', 'Stop');
     } else {
         my $cs_tools_link = "/cgi-bin/admin.pl?id=" . ai_esc($in{'id'}) . "&amp;member=" . ai_esc($member || '')
             . "&amp;l1=10&amp;l2=03";
         print "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>"
             . "cs-aihelp daemon not installed -- please download CS tools first: "
-            . "<a href=\"$cs_tools_link\"><b>System &gt; CS Tools</b></a></div><br><br>\n";
-        $daemon_html = "<span style='color:#a00'><b>not installed</b></span> (see System &gt; CS Tools)";
+            . "<a href=\"$cs_tools_link\"><b>System &gt; CS Tools Download</b></a></div><br><br>\n";
+        $daemon_html = "<span style='color:#a00'><b>not installed</b></span> (see System &gt; CS Tools Download)";
     }
 
     my $st_rows  = "<b>Mode</b>\t$mode_html\n"

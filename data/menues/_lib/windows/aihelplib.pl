@@ -714,6 +714,31 @@ sub ai_ollama_models {
     return (\@models, 1);
 }
 
+# background "ollama pull <model>" via the Ollama API (no shell); spawns a
+# detached child so the CGI returns immediately. Returns 1 if spawned.
+sub ai_ollama_pull_bg {
+    my ($model) = @_;
+    $model =~ s/[^A-Za-z0-9:._-]//g;
+    return 0 if $model eq '';
+    my $base = $ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434';
+    $base =~ s{[^A-Za-z0-9:/._-]}{}g;
+    $model =~ s{([\\'])}{\\$1}g;
+    $base  =~ s{([\\'])}{\\$1}g;
+    my $code = 'use HTTP::Tiny;use JSON::PP qw(encode_json);'
+        . "my \$u=HTTP::Tiny->new(timeout=>7200,verify_SSL=>0);"
+        . "\$u->post('$base/api/pull',{headers=>{'content-type'=>'application/json'},content=>encode_json({name=>'$model',stream=>0})});";
+    if ($^O =~ /MSWin/) {
+        system(1, $^X, '-e', $code);
+        return 1;
+    }
+    my $pid = fork();
+    return 0 unless defined $pid;
+    return 1 if $pid > 0;
+    eval { setsid() };
+    exec($^X, '-e', $code);
+    exit 0;
+}
+
 # 1) local Ollama daemon (reliable, private, no key) -- returns '' if absent
 sub _ai_free_ollama {
     my ($system, $msgs, $free_model, $allow_priv) = @_;
