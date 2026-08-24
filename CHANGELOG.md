@@ -1,5 +1,24 @@
 # Changelog
 
+## dev (2026-08-24) - Helpdesk UI + i18n refinement (host-side)
+
+**Per-question provider + mode choice, mini popup, translated field list.**
+
+- **Settings form**: field hints minimized (one/two words, English); below the
+  form a detailed per-field list via `$txt{'ai_f_*'}` from the new
+  `lang/<lang>/system.txt` (all 7 languages). Slot label `Mode` -> `Mode 1`.
+- **Helpdesk page**: independent per-question choice of **provider**
+  (`mode1`/`mode2` = slot 1/2) and **mode** (`plan` = ro, `act` = exec) as two
+  selects, plus Actions (propose/confirm/auto). Buttons `Ask`/`Abort`/`Resume`/
+  `New`. `Enter` inserts a newline, sending happens only via `Ask`.
+- **Popup**: title `mini AI Helpdesk`, `[x]` closes it, provider select
+  `mode1`/`mode2` before `Ask`/`New`.
+- **cs-aihelp.pl**: `action=load`/`resume` moved before the question guard
+  (`load` was unreachable); new `action=resume` returns the newest saved
+  conversation of the member (Resume button).
+- **help.txt**: JS strings + quick questions now in all 7 languages; key set
+  aligned (21 consumed keys) in every language.
+
 ## v1.1 (2026-08-24) — pre-release / release candidate
 
 **Published on GitHub as the newest downloadable release (marked as

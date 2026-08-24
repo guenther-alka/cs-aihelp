@@ -141,16 +141,16 @@ sub my_action {
 
     my $rows = "";
     # ---- slot 1: plan / read-only provider (default) ----
-    $rows .= "<b>Mode</b>\t" . $sel->('cfg_mode', $aicfg{mode} // 'free', qw(off free provider))
-        . $desc->("off = disabled | free = local Ollama, fallback Pollinations (no key) | provider = own endpoint + key") . "\n";
+    $rows .= "<b>Mode 1</b>\t" . $sel->('cfg_mode', $aicfg{mode} // 'free', qw(off free provider))
+        . $desc->("off | free | provider") . "\n";
     $rows .= "<b>Provider</b>\t" . $sel->('cfg_provider', $aicfg{provider} // 'openai', qw(openai anthropic ollama))
-        . $desc->("mode=provider only: openai / any OpenAI-compatible, anthropic, ollama (local)") . "\n";
+        . $desc->("mode=provider only") . "\n";
     $rows .= "<b>Endpoint</b>\t<input type='text' name='cfg_endpoint' value=\"" . ai_esc($aicfg{endpoint} // '')
         . "\" style='width:340px' placeholder='empty = provider default'>"
-        . $desc->("full chat-completions/messages URL; empty = provider default") . "\n";
+        . $desc->("empty = provider default") . "\n";
     $rows .= "<b>Model</b>\t<input type='text' name='cfg_model' value=\"" . ai_esc($aicfg{model} // '')
         . "\" style='width:200px' placeholder='empty = provider default'>"
-        . $desc->("e.g. gpt-4o-mini / claude-sonnet-5 / llama3.1") . "\n";
+        . $desc->("empty = provider default") . "\n";
     # free mode: choose from the locally installed Ollama models
     my ($ollama_models, $ollama_reachable) = ai_ollama_models();
     my $fm_sel;
@@ -166,112 +166,130 @@ sub my_action {
             . "\" style='width:200px' placeholder='auto'>";
     }
     $rows .= "<b>Free model</b>\t$fm_sel"
-        . $desc->("mode=free: local Ollama model tag"
-            . ($ollama_reachable
-                ? " (" . scalar(@$ollama_models) . " installed, selection possible)"
-                : " -- Ollama not reachable; 'auto' uses the first model once a daemon runs")) . "\n";
+        . $desc->("mode=free: Ollama model tag") . "\n";
     $rows .= "<b>API key</b>\t<input type='password' name='cfg_api_key' value=\"\" style='width:280px' placeholder='cloud providers only'>"
-        . $desc->(($aicfg{api_key} // '') ne ''
-                  ? "key is set -- leave empty to keep; new key overwrites."
-                  : "mode=free: not needed; enter for cloud providers") . "\n";
+        . $desc->("empty = keep") . "\n";
 
     # ---- slot 2: act/exec provider (Cline-style, optional) ----
     $rows .= "<tr><td colspan='2' style='padding-top:10px'><b>Slot 2 - act/exec provider</b> "
-        . "<span style='color:#888;font-size:11px'>(optional; select in Helpdesk/popup; empty mode = uses slot 1)</span></td></tr>\n";
+        . "<span style='color:#888;font-size:11px'>(optional; per-question provider slot 2)</span></td></tr>\n";
     my $m2sel = "<select name='cfg_mode2' style='width:200px'>"
         . "<option value=''" . (($aicfg{mode2} // '') eq '' ? ' selected' : '') . ">use slot 1</option>"
         . "<option value='free'" . (($aicfg{mode2} // '') eq 'free' ? ' selected' : '') . ">free</option>"
         . "<option value='provider'" . (($aicfg{mode2} // '') eq 'provider' ? ' selected' : '') . ">provider</option>"
         . "</select>";
     $rows .= "<b>Mode 2</b>\t$m2sel"
-        . $desc->("empty = use slot 1 (plan provider) | free = free tier | provider = endpoint below") . "\n";
+        . $desc->("empty = slot 1 | free | provider") . "\n";
     $rows .= "<b>Provider 2</b>\t" . $sel->('cfg_provider2', $aicfg{provider2} // 'openai', qw(openai anthropic ollama))
         . $desc->("mode2=provider only") . "\n";
     $rows .= "<b>Endpoint 2</b>\t<input type='text' name='cfg_endpoint2' value=\"" . ai_esc($aicfg{endpoint2} // '')
         . "\" style='width:340px' placeholder='empty = provider default'>"
-        . $desc->("full chat-completions/messages URL") . "\n";
+        . $desc->("empty = provider default") . "\n";
     $rows .= "<b>Model 2</b>\t<input type='text' name='cfg_model2' value=\"" . ai_esc($aicfg{model2} // '')
         . "\" style='width:200px' placeholder='empty = provider default'>"
-        . $desc->("e.g. gpt-4o-mini / claude-sonnet-5 / llama3.1") . "\n";
+        . $desc->("empty = provider default") . "\n";
     $rows .= "<b>Free model 2</b>\t<input type='text' name='cfg_free_model2' value=\"" . ai_esc($aicfg{free_model2} // '')
         . "\" style='width:200px' placeholder='auto'>"
         . $desc->("mode2=free: local Ollama model tag") . "\n";
     $rows .= "<b>API key 2</b>\t<input type='password' name='cfg_api_key2' value=\"\" style='width:280px' placeholder='cloud providers only'>"
-        . $desc->(($aicfg{api_key2} // '') ne ''
-                  ? "key is set -- leave empty to keep."
-                  : "cloud providers only") . "\n";
+        . $desc->("empty = keep") . "\n";
     $rows .= "<b>Tool use (L1)</b>\t" . $sel->('cfg_tool_use', $aicfg{tool_use} // 'no', qw(no yes))
-        . $desc->("yes = AI gets read-only live state (hostname, zpool list) of the selected member as context") . "\n";
+        . $desc->("yes = live state as context") . "\n";
     $rows .= "<b>Exec access (L2)</b>\t" . $sel->('cfg_exec_access', $aicfg{exec_access} // 'ro', qw(ro exec console))
-        . $desc->("ro (default) = read-only, no proposals/exec | exec = proposals, exec only from exec_allow (D2) | console = remote console (deny only) -- always with exec_mode confirm or auto") . "\n";
+        . $desc->("ro | exec | console") . "\n";
     $rows .= "<b>Exec mode (L2)</b>\t" . $sel->('cfg_exec_mode', $aicfg{exec_mode} // 'confirm', qw(propose confirm auto))
-        . $desc->("propose = show only | confirm (recommended) = explicit click per command | auto = no per-step confirmation (tight allow list only)") . "\n";
+        . $desc->("propose | confirm | auto") . "\n";
     $rows .= "<b>Exec allow (D2)</b>\t<input type='text' name='cfg_exec_allow' value=\"" . ai_esc($aicfg{exec_allow} // '')
         . "\" style='width:340px' placeholder='e.g. zfs,zpool,find,curl,ls,grep'>"
-        . $desc->("comma list of allowed command classes/prefixes (first word); empty = nothing executes. Examples: zfs, zfs snapshot, find, curl") . "\n";
+        . $desc->("comma list of allowed commands; empty = nothing") . "\n";
     $rows .= "<b>Exec deny (always)</b>\t<input type='text' name='cfg_exec_deny' value=\"" . ai_esc($aicfg{exec_deny} // 'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format')
         . "\" style='width:340px'>"
-        . $desc->("always applied and wins against exec_allow; pipe-separated substrings") . "\n";
+        . $desc->("always applied (wins)") . "\n";
     $rows .= "<b>Daemon autostart</b>\t" . $sel->('cfg_autostart', $aicfg{autostart} // 'on', qw(on off))
-        . $desc->("on = start the Go daemon at every server.pl boot (binary at data/cs_server/tools/cs-aihelp, mode != off); idempotent via 'cs-aihelp start'") . "\n";
+        . $desc->("on = start at boot") . "\n";
     $rows .= "<b>History</b>\t" . $sel->('cfg_history', $aicfg{history} // 'month', qw(off today week month 6months all))
-        . $desc->("one chat history per member; retention controls when old turns are deleted: off | today | week | month | 6months | all") . "\n";
+        . $desc->("off | today | week | month | 6months | all") . "\n";
     $rows .= "<b>History turns</b>\t<input type='text' name='cfg_history_turns' value=\"" . ai_esc($aicfg{history_turns} // '10')
         . "\" style='width:80px'>"
-        . $desc->("how many prior turns are sent as context on resume") . "\n";
+        . $desc->("prior turns as context") . "\n";
     $rows .= "<b>Widget (popup)</b>\t" . $sel->('cfg_widget', $aicfg{widget} // 'on', qw(on off))
-        . $desc->("on = floating read-only 'Ask AI' popup on every logged-in page | off = helpdesk page only") . "\n";
+        . $desc->("on = popup | off = page only") . "\n";
     $rows .= "<b>Popup input lines</b>\t<input type='text' name='cfg_widget_input_lines' value=\"" . ai_esc($aicfg{widget_input_lines} // '1')
         . "\" style='width:80px'>"
-        . $desc->("1 = single-line input | 2-10 = multiline textarea in the popup") . "\n";
+        . $desc->("1-10") . "\n";
     $rows .= "<b>Popup answer height (px)</b>\t<input type='text' name='cfg_widget_answer_height' value=\"" . ai_esc($aicfg{widget_answer_height} // '220')
         . "\" style='width:80px'>"
-        . $desc->("height of the popup answer area in px (100-1200)") . "\n";
+        . $desc->("px (100-1200)") . "\n";
     $rows .= "<b>Web research</b>\t" . $sel->('cfg_research', $aicfg{research} // 'ddg', qw(off ddg api))
-        . $desc->("off = local docs only | ddg (default) = DuckDuckGo Lite, no key | api = external search endpoint (+ optional key)") . "\n";
+        . $desc->("off | ddg | api") . "\n";
     $rows .= "<b>Research results</b>\t<input type='text' name='cfg_research_max' value=\"" . ai_esc($aicfg{research_max} // '5')
         . "\" style='width:80px'>"
-        . $desc->("max. search results added to the context") . "\n";
+        . $desc->("max. results") . "\n";
     $rows .= "<b>Research endpoint</b>\t<input type='text' name='cfg_research_endpoint' value=\"" . ai_esc($aicfg{research_endpoint} // '')
         . "\" style='width:340px' placeholder='https://.../search?q={q}'>"
-        . $desc->("research=api only: URL with {q} placeholder (Google CSE, Brave, Bing, SearXNG auto-detected); without {q} a ?q= is appended") . "\n";
+        . $desc->("research=api: URL with {q}") . "\n";
     $rows .= "<b>Research key</b>\t<input type='password' name='cfg_research_key' value=\"\" style='width:280px' placeholder='optional'>"
-        . $desc->(($aicfg{research_key} // '') ne ''
-                  ? "research=api only; key is set -- leave empty to keep"
-                  : "research=api only, if the service requires a key (Bearer/X-API-Key)") . "\n";
+        . $desc->("research=api: optional key") . "\n";
     $rows .= "<b>Fallback (setup)</b>\t" . $sel->('cfg_fallback', $aicfg{fallback} // 'free', qw(free off))
-        . $desc->("if mode=provider fails: free = answer via the free tier (marked 'via free (Fallback)') | off = show an error") . "\n";
+        . $desc->("free | off") . "\n";
     $rows .= "<b>Logging</b>\t" . $sel->('cfg_log', $aicfg{log} // 'on', qw(on off))
-        . $desc->("on = minimal metadata log (tmp/cs-aihelp.log, no question text) | off = no log") . "\n";
+        . $desc->("on | off") . "\n";
     $rows .= "<b>SSRF private EP</b>\t" . $sel->('cfg_ssrf_allow_private', $aicfg{ssrf_allow_private} // 'no', qw(no yes))
-        . $desc->("yes = allow RFC1918/private endpoints for remote Ollama / local OpenAI-compatible servers -- trusted networks only; link-local/metadata stay blocked") . "\n";
+        . $desc->("yes | no") . "\n";
     $rows .= "<b>Rate limit (daemon)</b>\t<input type='text' name='cfg_rate_limit' value=\"" . ai_esc($aicfg{rate_limit} // '60')
         . "\" style='width:80px'>"
-        . $desc->("max. requests per minute per client IP in the Go daemon (0 = off)") . "\n";
+        . $desc->("req/min (0 = off)") . "\n";
     $rows .= "<b>Context budget</b>\t<input type='text' name='cfg_max_context' value=\"" . ai_esc($aicfg{max_context} // '8000')
         . "\" style='width:80px'>"
-        . $desc->("max. characters of the system prompt (doc excerpts)") . "\n";
+        . $desc->("chars") . "\n";
 
     print &list2table($rows, "180px,540px", "", "", "n");
     print "<br><span style='color:#888;font-size:11px'>Save writes " . ai_esc(ai_cfg_path()) . "</span><br>\n";
     print "<input type='submit' value='Save'></form><br><br>\n";
 
-    # ------------------------------------------- translated info block (lang)
-    my @info = (
-        [ 'ai_intro',        'About' ],
-        [ 'ai_provider_info', 'Provider' ],
-        [ 'ai_exec_info',    'Command execution' ],
-        [ 'ai_autostart_info','Daemon autostart' ],
-        [ 'ai_history_info', 'Chat history' ],
-        [ 'ai_popup_info',   'Popup' ],
-        [ 'ai_privacy',      'Privacy' ],
+    # ------------------------------------------- detailed field list (lang)
+    # Field labels stay English (Basisregel); the explanatory texts come from
+    # system.txt (ai_f_* keys), translated via get_language2.
+    my @fields = (
+        [ 'Mode 1',             'ai_f_mode1' ],
+        [ 'Provider',           'ai_f_provider' ],
+        [ 'Endpoint',           'ai_f_endpoint' ],
+        [ 'Model',              'ai_f_model' ],
+        [ 'Free model',         'ai_f_free_model' ],
+        [ 'API key',            'ai_f_api_key' ],
+        [ 'Mode 2',             'ai_f_mode2' ],
+        [ 'Provider 2',         'ai_f_provider2' ],
+        [ 'Endpoint 2',         'ai_f_endpoint2' ],
+        [ 'Model 2',            'ai_f_model2' ],
+        [ 'Free model 2',       'ai_f_free_model2' ],
+        [ 'API key 2',          'ai_f_api_key2' ],
+        [ 'Tool use (L1)',      'ai_f_tool_use' ],
+        [ 'Exec access (L2)',   'ai_f_exec_access' ],
+        [ 'Exec mode (L2)',     'ai_f_exec_mode' ],
+        [ 'Exec allow (D2)',    'ai_f_exec_allow' ],
+        [ 'Exec deny (always)', 'ai_f_exec_deny' ],
+        [ 'Daemon autostart',   'ai_f_autostart' ],
+        [ 'History',            'ai_f_history' ],
+        [ 'History turns',      'ai_f_history_turns' ],
+        [ 'Widget (popup)',     'ai_f_widget' ],
+        [ 'Popup input lines',  'ai_f_widget_input_lines' ],
+        [ 'Popup answer height','ai_f_widget_answer_height' ],
+        [ 'Web research',       'ai_f_research' ],
+        [ 'Research results',   'ai_f_research_max' ],
+        [ 'Research endpoint',  'ai_f_research_endpoint' ],
+        [ 'Research key',       'ai_f_research_key' ],
+        [ 'Fallback (setup)',   'ai_f_fallback' ],
+        [ 'Logging',            'ai_f_log' ],
+        [ 'SSRF private EP',    'ai_f_ssrf_allow_private' ],
+        [ 'Rate limit (daemon)', 'ai_f_rate_limit' ],
+        [ 'Context budget',     'ai_f_max_context' ],
     );
     print "<div style='max-width:780px'>\n";
-    for my $pair (@info) {
-        my ($key, $title) = @$pair;
+    for my $pair (@fields) {
+        my ($label, $key) = @$pair;
         my $t = ai_txt($key, '');
         next if $t eq '';
-        print "<b>" . ai_esc($title) . "</b><br>\n";
+        print "<b>" . ai_esc($label) . "</b><br>\n";
         print $t . "<br><br>\n";
     }
     print "</div>\n";

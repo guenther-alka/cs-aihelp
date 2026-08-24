@@ -31,9 +31,13 @@ use vars qw($tf $wpath $tpath $dpath %cfg %in %current %sys %zfs %disk $t $debug
 # it to @INC globally, but the standalone CGI must be self-sufficient too
 use lib "/opt/csweb-gui/data/cs_server/CGI";
 
-my $ver = "26.08.24_12:00";
+my $ver = "26.08.24_15:00";
 
 # -- Changelog
+# 2026.08.24_15:00  AI Helpdesk UI + i18n (settings/help/popup)
+#   B  action=load/resume moved before the question guard (load was
+#      unreachable), new action=resume returns the newest saved
+#      conversation of the member for the Resume button.
 # 2026.08.24_12:00  (Claude claude-sonnet-5)  AI Helpdesk MVP
 #   A  initial: JSON CGI for the AI Helpdesk (cs-aihelp.pl).
 #      Session check + member auth via socketlib.pl, provider call via
@@ -115,6 +119,39 @@ if ($sess_err) {
 my $member = $in{member} // 'localhost~127.0.0.1';
 &load_group_auth($member);
 
+# ---- action: load/resume a conversation (no question needed) --------------
+if (($in{action} // '') eq 'load') {
+    my $conv = ai_history_load($in{conv} // '');
+    if (!$conv) {
+        print "Content-Type: application/json\r\n\r\n"
+            . encode_json({ ok => 0, error => 'conversation not found' }) . "\n";
+        exit;
+    }
+    my @msgs = map { { role => $_->{role}, text => $_->{text} } } @{$conv->{messages} // []};
+    print "Content-Type: application/json\r\n\r\n"
+        . encode_json({ ok => 1, title => $conv->{title} // '', messages => \@msgs }) . "\n";
+    exit;
+}
+if (($in{action} // '') eq 'resume') {
+    # newest saved conversation of this member (history files carry member)
+    my @list = ai_history_list();
+    my ($found_id, $found);
+    for my $e (@list) {
+        my $c = ai_history_load($e->{id});
+        next unless $c && (($c->{member} // '') eq $member);
+        $found_id = $e->{id}; $found = $c; last;
+    }
+    if (!$found) {
+        print "Content-Type: application/json\r\n\r\n"
+            . encode_json({ ok => 0, error => 'no saved conversation' }) . "\n";
+        exit;
+    }
+    my @msgs = map { { role => $_->{role}, text => $_->{text} } } @{$found->{messages} // []};
+    print "Content-Type: application/json\r\n\r\n"
+        . encode_json({ ok => 1, conv => $found_id, title => $found->{title} // '', messages => \@msgs }) . "\n";
+    exit;
+}
+
 my $question = $in{question} // '';
 my $has_tool = $in{tool_results} && ref $in{tool_results} eq 'ARRAY' && @{$in{tool_results}};
 if ($question =~ /^\s*$/ && !$has_tool) {
@@ -150,20 +187,6 @@ if (($in{l1} // '') ne '') {
     $context .= " l2=" . $in{l2} if ($in{l2} // '') ne '';
     $context .= " l3=" . $in{l3} if ($in{l3} // '') ne '';
     $context .= " (member " . $member . ")";
-}
-
-# ---- action: load a conversation (resume) ------------------------------
-if (($in{action} // '') eq 'load') {
-    my $conv = ai_history_load($in{conv} // '');
-    if (!$conv) {
-        print "Content-Type: application/json\r\n\r\n"
-            . encode_json({ ok => 0, error => 'conversation not found' }) . "\n";
-        exit;
-    }
-    my @msgs = map { { role => $_->{role}, text => $_->{text} } } @{$conv->{messages} // []};
-    print "Content-Type: application/json\r\n\r\n"
-        . encode_json({ ok => 1, title => $conv->{title} // '', messages => \@msgs }) . "\n";
-    exit;
 }
 
 # ---- chat history context (resume) -------------------------------------

@@ -956,7 +956,7 @@ sub ai_chat_js {
     my $js = <<'EoJS';
 <script>
 var _aiId='%%ID%%', _aiMember='%%MEMBER%%', _aiL1='%%L1%%', _aiL2='%%L2%%', _aiL3='%%L3%%', _aiConv='';
-var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%, _aiProvider='plan';
+var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%;
 var _aiT={
   answering:'%%T_ANSWERING%%', error:'%%T_ERROR%%', settings:'%%T_SETTINGS%%',
   ratelimit:'%%T_RATELIMIT%%', proverr:'%%T_PROVERR%%', session:'%%T_SESSION%%',
@@ -991,22 +991,16 @@ function _aiCopy(btn){
   btn.innerHTML='OK'; setTimeout(function(){ btn.innerHTML=_aiT.copy; }, 1200);
 }
 function _aiAccessMode(){
-  var r=document.getElementsByName('aihelp_access'), access='ro';
-  if(r && r.length){ for(var i=0;i<r.length;i++){ if(r[i].checked) access=r[i].value; } }
-  var mode='confirm', m=document.getElementById('aihelp_mode');
-  if(m && m.value){ mode=m.value; }
-  var plan=false, p=document.getElementById('aihelp_plan');
-  if(p){ plan=p.checked; }
-  var provider=_aiProvider;
-  if(_aiPopup){ var prp=document.getElementById('aihelp_p_provider'); if(prp && prp.value){ provider=prp.value; } }
-  return {access:access, mode:mode, plan:plan, provider:provider};
-}
-function _aiSetProvider(p){
-  _aiProvider=(p==='act')?'act':'plan';
-  var a=document.getElementById('aihelp_pplan');
-  var b=document.getElementById('aihelp_pact');
-  if(a){ a.style.background=(_aiProvider==='plan')?'#234':'#fff'; a.style.color=(_aiProvider==='plan')?'#fff':'#234'; }
-  if(b){ b.style.background=(_aiProvider==='act')?'#234':'#fff'; b.style.color=(_aiProvider==='act')?'#fff':'#234'; }
+  var prp=document.getElementById(_aiPopup?'aihelp_p_provider':'aihelp_provider');
+  var provider='plan';
+  if(prp && prp.value && prp.value==='mode2'){ provider='act'; }
+  var am=document.getElementById('aihelp_amode');
+  var mode='plan';
+  if(am && am.value && am.value==='act'){ mode='act'; }
+  var em=document.getElementById('aihelp_emode');
+  var emode='confirm';
+  if(em && em.value){ emode=em.value; }
+  return {access:(mode==='act')?'exec':'ro', mode:emode, plan:(mode==='plan'), provider:provider};
 }
 function _aiCall(log, question, toolResults){
   if(_aiBusy) return;
@@ -1093,7 +1087,27 @@ function _aiExec(log, action){
 }
 function _aiAbort(){ _aiBusy=false; }
 function _aiNew(logId){ _aiConv=''; _aiTool=[]; _aiBusy=false; var log=document.getElementById(logId); if(log){ log.innerHTML=''; } }
-function _aiKey(e, logId, inpId, btnId){ if(e.key==='Enter' && (e.ctrlKey || e.metaKey)){ _aiAsk(logId, inpId, btnId); } }
+function _aiResume(logId){
+  var log=document.getElementById(logId||'%%LOGID%%');
+  fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,action:'resume'})})
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(d && d.ok){
+      _aiConv=d.conv||''; _aiTool=[]; _aiBusy=false;
+      if(log){ log.innerHTML=''; }
+      var msgs=d.messages||[];
+      for(var i=0;i<msgs.length;i++){
+        var m=msgs[i];
+        if(m.role==='user'){ _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(m.text),'aihelp_q'); }
+        else if(m.role==='assistant'){ _aiAppend(log,_aiAnswerHtml({answer:_aiEsc(m.text),via:null,sources:null}),'aihelp_a'); }
+      }
+    } else {
+      _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
+    }
+  })
+  .catch(function(e){ _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
+}
 function _aiFocus(inpId){ var i=document.getElementById(inpId); if(i){ i.focus(); } }
 </script>
 EoJS
@@ -1154,15 +1168,9 @@ sub ai_chat_page {
     my $mode_badge = ($mode eq 'free')
         ? "<span style='color:darkgreen'><b>free</b></span> (local Ollama / Pollinations fallback -- no key)"
         : "<span style='color:#234'><b>provider</b></span>";
-    my $access = ai_trim($aicfg{exec_access} // 'ro');
     my $emode  = ai_trim($aicfg{exec_mode} // 'confirm');
-    my $acc_badge = ($access eq 'ro')
-        ? "<span style='color:darkgreen'><b>ro</b></span> (read-only)"
-        : "<span style='color:#b26a00'><b>" . ai_esc($access) . "</b></span>";
-    my $chk = sub { my ($v) = @_; return ($access eq $v) ? ' checked' : ''; };
     my $sel = sub { my ($v) = @_; return ($emode eq $v) ? ' selected' : ''; };
     # precompute for heredoc interpolation (coderefs can't be called inside)
-    my ($ro_chk, $exec_chk, $console_chk) = ($chk->('ro'), $chk->('exec'), $chk->('console'));
     my ($propose_sel, $confirm_sel, $auto_sel) = ($sel->('propose'), $sel->('confirm'), $sel->('auto'));
 
     # ---- quick questions (translated) ----
@@ -1178,38 +1186,39 @@ sub ai_chat_page {
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6;margin-bottom:6px">
     <b>AI Helpdesk -- $member</b>
     <span style="color:#888;font-size:12px">Provider:</span>
-    <span id="aihelp_provider" style="display:inline-flex;gap:2px">
-      <button type="button" id="aihelp_pplan" onclick="_aiSetProvider('plan')" style="padding:2px 12px;cursor:pointer;border:1px solid #666;border-radius:3px 0 0 3px;background:#234;color:#fff">Plan</button>
-      <button type="button" id="aihelp_pact" onclick="_aiSetProvider('act')" style="padding:2px 12px;cursor:pointer;border:1px solid #666;border-radius:0 3px 3px 0;background:#fff;color:#234">Act</button>
-    </span>
+    <select id="aihelp_provider" style="font-size:12px">
+      <option value="mode1">mode1</option>
+      <option value="mode2">mode2</option>
+    </select>
     <span style="color:#888;font-size:12px">Mode:</span>
-    <label><input type="radio" name="aihelp_access" value="ro"$ro_chk> ro</label>
-    <label><input type="radio" name="aihelp_access" value="exec"$exec_chk> exec</label>
-    <label><input type="radio" name="aihelp_access" value="console"$console_chk> console</label>
+    <select id="aihelp_amode" style="font-size:12px">
+      <option value="plan">plan (ro)</option>
+      <option value="act">act (exec)</option>
+    </select>
     <span style="color:#888;font-size:12px">Actions:</span>
-    <select id="aihelp_mode">
+    <select id="aihelp_emode" style="font-size:12px">
       <option value="propose"$propose_sel>propose</option>
       <option value="confirm"$confirm_sel>confirm</option>
       <option value="auto"$auto_sel>auto</option>
     </select>
-    <label title="Present a plan first and wait for confirmation"><input type="checkbox" id="aihelp_plan" checked> Plan first</label>
+    <button onclick="_aiAsk('aihelp_log','aihelp_q')" style="padding:4px 10px">Ask</button>
     <button onclick="_aiAbort()" style="padding:4px 10px" title="Stop the agentic loop">Abort</button>
+    <button onclick="_aiResume('aihelp_log')" style="padding:4px 10px" title="Load the last saved conversation">Resume</button>
     <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
   </div>
   <div style="flex:1;display:flex;flex-direction:column;min-height:0">
     <div style="flex:2;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff">
-      <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Ctrl+Enter to send): $quick</div>
+      <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask): $quick</div>
       <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent" placeholder="Question ..."></textarea>
     </div>
     <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff;margin-top:6px"></div>
   </div>
 </div>
 <script>
-  document.getElementById('aihelp_q').addEventListener('keydown', function(e){ if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ _aiAsk('aihelp_log','aihelp_q','aihelp_send'); } });
   _aiFocus('aihelp_q');
 </script>
 EoH
-    print "<p style='color:#888;font-size:11px'>Mode: $mode_badge &nbsp; exec_access: $acc_badge &nbsp; exec_deny is always applied. Answers are based on the napp-it documentation (data/howto.ai).</p>\n";
+    print "<p style='color:#888;font-size:11px'>Mode: $mode_badge &nbsp; &nbsp; provider = mode1/mode2, mode = plan (ro) / act (exec) - per question &nbsp; &nbsp; exec_deny is always applied. Answers are based on the napp-it documentation (data/howto.ai).</p>\n";
     print ai_chat_js('page', $member, $l1, $l2, $l3);
     # demonstrate the context-sensitive floating popup on this page as well
     ai_popup($member, $l1, $l2, $l3);
@@ -1236,8 +1245,8 @@ sub ai_popup {
     $aheight = $ah if $ah =~ /^\d+$/ && $ah >= 100 && $ah <= 1200;
 
     my $q_ctl = ($ilines == 1)
-        ? "<input id=\"aihelp_p_q\" type=\"text\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ... (Enter)\">"
-        : "<textarea id=\"aihelp_p_q\" rows=\"$ilines\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ... (Enter)\"></textarea>";
+        ? "<input id=\"aihelp_p_q\" type=\"text\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\">"
+        : "<textarea id=\"aihelp_p_q\" rows=\"$ilines\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\"></textarea>";
 
     print <<"EoP";
 <style>
@@ -1262,14 +1271,14 @@ EoP
     print "<button id=\"aihelp_btn\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
 <div id="aihelp_box">
-  <div id="aihelp_p_hdr" onmousedown="return dragStart(event,'aihelp_box')"><span>AI Helpdesk</span><span style="font-weight:normal">RO</span></div>
+  <div id="aihelp_p_hdr" onmousedown="return dragStart(event,'aihelp_box')"><span>mini AI Helpdesk</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
       <span style="font-size:11px;color:#888">Provider:</span>
       <select id="aihelp_p_provider" style="font-size:11px">
-        <option value="plan" selected>plan</option>
-        <option value="act">act</option>
+        <option value="mode1">mode1</option>
+        <option value="mode2">mode2</option>
       </select>
     </div>
     $q_ctl
@@ -1277,10 +1286,6 @@ EoP
       <button id="aihelp_p_btn" onclick="_aiAsk('aihelp_p_log','aihelp_p_q','aihelp_p_btn')" style="padding:5px 10px">Ask</button>
       <button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
     </div>
-    <script>
-      var _pq=document.getElementById('aihelp_p_q');
-      _pq.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); _aiAsk('aihelp_p_log','aihelp_p_q','aihelp_p_btn'); } });
-    </script>
   </div>
 </div>
 EoP
