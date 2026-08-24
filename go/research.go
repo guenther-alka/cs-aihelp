@@ -96,14 +96,14 @@ func searchDDG(q string, max int) []SearchResult {
 // searchAPI calls any JSON search endpoint ({q} placeholder or ?q=) and maps
 // the response from the common shapes (Google CSE, Brave, Bing, SearXNG,
 // Serper, generic array). SSRF-guarded.
-func searchAPI(q string, max int, endpoint, key string) []SearchResult {
+func searchAPI(q string, max int, endpoint, key string, allowPrivate bool) []SearchResult {
 	if max <= 0 {
 		max = 5
 	}
 	if q == "" || endpoint == "" {
 		return nil
 	}
-	if !safeURL(endpoint, true) {
+	if !safeURL(endpoint, true, allowPrivate) {
 		return nil
 	}
 	u := endpoint

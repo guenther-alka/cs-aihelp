@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -47,7 +48,7 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 			ep = "https://api.openai.com/v1/chat/completions"
 		}
 	}
-	if !safeURL(ep, true) {
+	if !safeURL(ep, true, cfg.SSRFAllowPrivate) {
 		return "", errors.New("endpoint not allowed (SSRF guard)")
 	}
 	model := cfg.Model
@@ -127,39 +128,71 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 	return "", errors.New("empty provider response")
 }
 
-// freeOllama queries the local Ollama daemon; returns '' if absent.
+// ollamaProbeCache -- K1: cache the local Ollama probe result for 30s so
+// repeated free-mode questions don't wait on a dead 2s /api/tags probe.
+var ollamaProbeCache struct {
+	sync.Mutex
+	ok     bool
+	models []string
+	until  time.Time
+}
+
+// ollamaProbe returns (models, reachable), probing at most once per 30s.
+func ollamaProbe(base string) ([]string, bool) {
+	ollamaProbeCache.Lock()
+	defer ollamaProbeCache.Unlock()
+	if time.Now().Before(ollamaProbeCache.until) {
+		return ollamaProbeCache.models, ollamaProbeCache.ok
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(base + "/api/tags")
+	ok := err == nil && resp.StatusCode == http.StatusOK
+	var models []string
+	if ok {
+		defer resp.Body.Close()
+		var tags struct {
+			Models []struct{ Name string `json:"name"` } `json:"models"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&tags) == nil {
+			for _, m := range tags.Models {
+				models = append(models, m.Name)
+			}
+		}
+		ok = len(models) > 0
+	}
+	ollamaProbeCache.ok = ok
+	ollamaProbeCache.models = models
+	ollamaProbeCache.until = time.Now().Add(30 * time.Second)
+	return models, ok
+}
+
+// freeOllama queries the local (or OLLAMA_BASE) Ollama daemon.
 func freeOllama(cfg *Config, system string, msgs []chatMsg) (string, error) {
 	base := "http://127.0.0.1:11434"
 	if b := os.Getenv("OLLAMA_BASE"); b != "" {
 		base = b
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	tagsResp, err := client.Get(base + "/api/tags")
-	if err != nil || tagsResp.StatusCode != http.StatusOK {
+	if !safeURL(base, true, cfg.SSRFAllowPrivate) {
+		return "", errors.New("ollama endpoint not allowed (SSRF guard)")
+	}
+	models, ok := ollamaProbe(base)
+	if !ok || len(models) == 0 {
 		return "", errors.New("ollama not reachable")
 	}
-	rb, _ := io.ReadAll(tagsResp.Body)
-	tagsResp.Body.Close()
-	var tags struct {
-		Models []struct{ Name string `json:"name"` } `json:"models"`
-	}
-	if err := json.Unmarshal(rb, &tags); err != nil || len(tags.Models) == 0 {
-		return "", errors.New("ollama: no models")
-	}
 	model := ""
-	for _, m := range tags.Models {
-		if cfg.FreeModel != "" && m.Name == cfg.FreeModel {
-			model = m.Name
+	for _, m := range models {
+		if cfg.FreeModel != "" && m == cfg.FreeModel {
+			model = m
 			break
 		}
 	}
 	if model == "" {
-		model = tags.Models[0].Name
+		model = models[0]
 	}
 	all := []chatMsg{{Role: "system", Content: system}}
 	all = append(all, msgs...)
 	body := map[string]any{"model": model, "messages": all, "stream": false}
-	cb, cst, err := postJSON(client, base+"/api/chat", body, nil, 120*time.Second)
+	cb, cst, err := postJSON(&http.Client{}, base+"/api/chat", body, nil, 120*time.Second)
 	if err != nil || cst != http.StatusOK {
 		return "", errors.New("ollama chat failed")
 	}

@@ -40,6 +40,10 @@ type Config struct {
 	ExecMode string
 	Log      bool
 
+	// security
+	SSRFAllowPrivate bool // yes = allow RFC1918/private endpoints (LAN-only)
+	RateLimit        int  // max requests/min per client IP in the daemon (0 = off)
+
 	// daemon / network
 	Listen     string // 127.0.0.1:45555 (default) | 0.0.0.0:45555
 	AllowedIP  string // comma-separated IP/CIDR; empty = loopback only; "*" = any
@@ -58,6 +62,7 @@ func DefaultConfig() *Config {
 		Research: "ddg", ResearchMax: 5,
 		History: "month", HistoryTurns: 10,
 		Widget: true, Log: true,
+		SSRFAllowPrivate: false, RateLimit: 60,
 		Listen:  "127.0.0.1:45555",
 		TLSCert: "/opt/csweb-gui/_cfg/webserver/cert/server.crt",
 		TLSKey:  "/opt/csweb-gui/_cfg/webserver/cert/server.key",
@@ -134,6 +139,10 @@ func LoadConfig(path string) (*Config, error) {
 			cfg.ExecMode = v
 		case "log":
 			cfg.Log = v != "off"
+		case "ssrf_allow_private":
+			cfg.SSRFAllowPrivate = v == "yes" || v == "on"
+		case "rate_limit":
+			fmt.Sscanf(v, "%d", &cfg.RateLimit)
 		case "listen":
 			cfg.Listen = v
 		case "allowed_ip":
@@ -159,6 +168,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.HistoryTurns <= 0 {
 		cfg.HistoryTurns = 10
+	}
+	if cfg.RateLimit < 0 {
+		cfg.RateLimit = 60
 	}
 	return cfg, nil
 }
@@ -200,6 +212,8 @@ func (c *Config) Save() error {
 	fw("widget", yn(c.Widget))
 	fw("exec_mode", c.ExecMode)
 	fw("log", yn(c.Log))
+	fw("ssrf_allow_private", yn(c.SSRFAllowPrivate))
+	fw("rate_limit", fmt.Sprintf("%d", c.RateLimit))
 	fw("listen", c.Listen)
 	fw("allowed_ip", c.AllowedIP)
 	fw("auth_token", c.AuthToken)

@@ -88,7 +88,7 @@ func (a *App) Ask(req AskRequest, member string) (AskResult, error) {
 	var research []SearchResult
 	if cfg.Research != "off" {
 		if cfg.Research == "api" {
-			research = searchAPI(q, cfg.ResearchMax, cfg.ResearchEP, cfg.ResearchKey)
+			research = searchAPI(q, cfg.ResearchMax, cfg.ResearchEP, cfg.ResearchKey, cfg.SSRFAllowPrivate)
 		} else {
 			research = searchDDG(q, cfg.ResearchMax)
 		}

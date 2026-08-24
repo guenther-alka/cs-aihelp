@@ -20,8 +20,21 @@ func TestSafeURL(t *testing.T) {
 		{"http://localhost:8080/chat", true},
 	}
 	for _, c := range cases {
-		if got := safeURL(c.url, true); got != c.ok {
+		if got := safeURL(c.url, true, false); got != c.ok {
 			t.Errorf("safeURL(%q) = %v, want %v", c.url, got, c.ok)
 		}
 	}
 }
+
+func TestSafeURLAllowPrivate(t *testing.T) {
+	if !safeURL("http://192.168.2.10/chat", true, true) {
+		t.Error("192.168 should be allowed with allowPrivate")
+	}
+	if !safeURL("http://10.0.0.5/chat", true, true) {
+		t.Error("10/8 should be allowed with allowPrivate")
+	}
+	if safeURL("http://169.254.169.254/latest/meta-data", true, true) {
+		t.Error("cloud metadata must stay blocked even with allowPrivate")
+	}
+}
+

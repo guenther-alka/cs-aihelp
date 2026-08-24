@@ -10,8 +10,10 @@ import (
 )
 
 // safeURL reports whether url is an http(s) endpoint whose host is not a
-// private/link-local/reserved address. allowLoopback permits 127.0.0.1/::1.
-func safeURL(raw string, allowLoopback bool) bool {
+// link-local/reserved address. allowLoopback permits 127.0.0.1/::1.
+// allowPrivate additionally permits RFC1918/ULA ranges (LAN-only opt-in);
+// link-local, cloud-metadata and reserved ranges always stay blocked.
+func safeURL(raw string, allowLoopback, allowPrivate bool) bool {
 	raw = strings.TrimSpace(raw)
 	low := strings.ToLower(raw)
 	if !strings.HasPrefix(low, "http://") && !strings.HasPrefix(low, "https://") {
@@ -42,7 +44,10 @@ func safeURL(raw string, allowLoopback bool) bool {
 	if ip.IsLoopback() {
 		return allowLoopback
 	}
-	if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+	if ip.IsPrivate() && !allowPrivate {
+		return false
+	}
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() || ip.IsUnspecified() || isReserved(ip) {
 		return false
 	}

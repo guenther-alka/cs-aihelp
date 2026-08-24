@@ -68,6 +68,8 @@ sub ai_cfg_defaults {
         research_key  => '',        # api mode: optional key (Bearer / X-API-Key)
         fallback      => 'free',    # off | free -- if mode=provider fails, answer via free tier
         log           => 'on',      # on = minimal metadata log (never the question text); off = no log
+        ssrf_allow_private => 'no', # yes = allow RFC1918/private endpoints (LAN-only remote Ollama etc.)
+        rate_limit    => '60',      # daemon: max requests per minute per client IP (0 = off)
     };
 }
 
@@ -91,13 +93,16 @@ sub ai_esc {
     return $s;
 }
 
-# SSRF guard: allow http(s) only. Blocks private / link-local / reserved /
-# multicast addresses (10/8, 172.16/12, 192.168/16, 169.254/16, 127/8,
-# ::1, fe80::/10, fc00::/7, 0/8, CGNAT 100.64/10, TEST-NET, >=224/8).
-# Loopback stays allowed by default (local Ollama / local search / tests).
+# SSRF guard: allow http(s) only. Blocks link-local / metadata / reserved /
+# multicast addresses (169.254/16, 127/8, ::1, fe80::/10, fc00::/7, 0/8,
+# CGNAT 100.64/10, TEST-NET, >=224/8). Loopback stays allowed by default
+# (local Ollama / local search / tests). RFC1918 private ranges (10/8,
+# 172.16/12, 192.168/16) are blocked unless $allow_private (opt-in for
+# LAN-only remote Ollama / local OpenAI-compatible servers).
 sub _ai_safe_url {
-    my ($url, $allow_loopback) = @_;
+    my ($url, $allow_loopback, $allow_private) = @_;
     $allow_loopback = 1 unless defined $allow_loopback;
+    $allow_private  = 0 unless defined $allow_private;
     return 0 unless defined $url && $url =~ m{^https?://}i;
     my ($host) = $url =~ m{^https?://([^/:\s]+)}i;
     return 0 unless defined $host && $host ne '';
@@ -108,19 +113,22 @@ sub _ai_safe_url {
         my @o = split(/\./, $host);
         my ($a, $b) = ($o[0], $o[1]);
         return $allow_loopback ? 1 : 0 if $a == 127;
-        return 0 if $a == 10;
-        return 0 if $a == 172 && $b >= 16 && $b <= 31;
-        return 0 if $a == 192 && $b == 168;
-        return 0 if $a == 169 && $b == 254;
+        # RFC1918: blocked unless explicitly allowed (LAN-only opt-in)
+        if ($a == 10)                              { return $allow_private ? 1 : 0; }
+        if ($a == 172 && $b >= 16 && $b <= 31)     { return $allow_private ? 1 : 0; }
+        if ($a == 192 && $b == 168)                { return $allow_private ? 1 : 0; }
+        return 0 if $a == 169 && $b == 254;        # link-local / metadata
         return 0 if $a == 0;
-        return 0 if $a == 100 && $b >= 64 && $b <= 127;
-        return 0 if $a >= 224;
+        return 0 if $a == 100 && $b >= 64 && $b <= 127;   # CGNAT
+        return 0 if $a >= 224;                             # multicast/reserved
         return 1;
     }
     if ($host =~ /:/) {                        # IPv6
         return $allow_loopback ? 1 : 0 if $host eq '::1';
-        return 0 if $host =~ /^fe80:/;
-        return 0 if $host =~ /^fc[0-9a-f]{2}:/;
+        return 0 if $host =~ /^fe80:/;         # link-local
+        if ($host =~ /^fc[0-9a-f]{2}:/) {      # unique local (RFC4193)
+            return $allow_private ? 1 : 0;
+        }
         return 1;
     }
     return 1;                                  # hostname: DNS-level SSRF not covered
@@ -157,7 +165,7 @@ sub ai_cfg_write {
     mkdir $dir unless -d $dir;          # _cfg/ may be missing on a fresh install
     my @keys = qw(mode provider endpoint model api_key exec_mode tool_use max_context
                   history history_turns free_model widget research research_max
-                  research_endpoint research_key fallback log);
+                  research_endpoint research_key fallback log ssrf_allow_private rate_limit);
     my @lines = (
         '# cs-aihelp configuration -- see data/howto.ai/ai-helpdesk.info',
         '# Written by csweb-gui System > Services > AI Helpdesk.',
@@ -370,7 +378,9 @@ sub ai_research_api {
     $max = 5 unless $max && $max > 0;
     my $q = ai_trim($question);
     return () unless $q ne '' && $endpoint ne '';
-    return () unless _ai_safe_url($endpoint, 1);   # SSRF guard
+    my %_cfg = ai_cfg_read();
+    my $allow_priv = (ai_trim($_cfg{ssrf_allow_private} // 'no')) eq 'yes' ? 1 : 0;
+    return () unless _ai_safe_url($endpoint, 1, $allow_priv);   # SSRF guard
     my $url = $endpoint;
     if ($url =~ /\{q\}/) {
         $url =~ s/\{q\}/uri_escape_utf8($q)/ge;
@@ -438,14 +448,16 @@ sub ai_provider_call {
     my $endpoint = $resolved->{endpoint} // '';
     my $model    = $resolved->{model}    // 'openai';
     my $key      = $resolved->{api_key}  // '';
+    my %_cfg     = ai_cfg_read();
+    my $allow_priv = (ai_trim($_cfg{ssrf_allow_private} // 'no')) eq 'yes' ? 1 : 0;
     return { error => 'no endpoint configured' } unless $endpoint;
     return { error => 'endpoint not allowed (SSRF guard)' }
-        unless _ai_safe_url($endpoint, 1);
+        unless _ai_safe_url($endpoint, 1, $allow_priv);
 
     my ($url, %hdr, $body);
     if ($provider eq 'free') {
         # free tier: local Ollama first, Pollinations GET as fallback
-        my $a = _ai_free_ollama($system, $msgs, $resolved->{free_model} // '');
+        my $a = _ai_free_ollama($system, $msgs, $resolved->{free_model} // '', $allow_priv);
         return { answer => $a } if defined $a && $a ne '';
         my $p = _ai_free_pollinations($system, $msgs);
         return { answer => $p } if defined $p && $p ne '';
@@ -512,7 +524,9 @@ sub ai_ollama_models {
 
 # 1) local Ollama daemon (reliable, private, no key) -- returns '' if absent
 sub _ai_free_ollama {
-    my ($system, $msgs, $free_model) = @_;
+    my ($system, $msgs, $free_model, $allow_priv) = @_;
+    my $base = $ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434';
+    return '' unless _ai_safe_url($base, 1, $allow_priv);
     my ($models, $reachable) = ai_ollama_models();
     return '' unless $reachable && @$models;
     my $model = '';
@@ -524,7 +538,6 @@ sub _ai_free_ollama {
     my @all = ({ role => 'system', content => $system });
     push @all, @$msgs;
     my $body = encode_json({ model => $model, messages => \@all, stream => 0 });
-    my $base = $ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434';
     my $u2 = HTTP::Tiny->new(timeout => 120, verify_SSL => 0);
     my $resp = $u2->post("$base/api/chat",
         { headers => { 'content-type' => 'application/json' }, content => $body });

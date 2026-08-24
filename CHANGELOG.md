@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.1 (2026-08-24)
+
+- **`ssrf_allow_private = no|yes`** (default `no`): allows RFC1918/private
+  endpoints (LAN-only **remote Ollama** / local OpenAI-compatible servers);
+  link-local, cloud-metadata and reserved ranges stay blocked. Makes the
+  free tier usable on FreeBSD/illumos/Solaris via a remote Ollama host.
+- **Ollama probe cache**: `/api/tags` reachability is cached for 30 s — no
+  more 2 s latency per free question when Ollama is absent (falls through
+  to Pollinations immediately).
+- **Rate limit** (`rate_limit`, default 60): per-client-IP token bucket in
+  the daemon (0 = off) — protects remote listeners from abuse.
+- All three keys are editable in the settings menu and read by both the
+  Go daemon and the Perl layer.
+
 ## v1.0.0 (2026-08-24)
 
 **cs-aihelp is now an independent Go daemon** (`go/`), built for 8 platforms

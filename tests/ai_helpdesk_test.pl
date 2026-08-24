@@ -199,5 +199,19 @@ my %cfg_log2 = ai_cfg_read();
 ok($cfg_log2{log} eq 'off', 'config: log key roundtrip');
 ai_cfg_write(%cfg);
 
+# ---- 22. SSRF: RFC1918 allowed only with allow_private ----
+ok(_ai_safe_url('http://192.168.2.10/chat', 1, 1), 'ssrf: 192.168 allowed with allow_private');
+ok(_ai_safe_url('http://10.0.0.5/chat', 1, 1), 'ssrf: 10/8 allowed with allow_private');
+ok(!_ai_safe_url('http://192.168.2.10/chat', 1, 0), 'ssrf: 192.168 blocked by default');
+ok(!_ai_safe_url('http://169.254.169.254/latest/meta-data', 1, 1), 'ssrf: metadata still blocked with allow_private');
+
+# ---- 23. config roundtrip: ssrf_allow_private + rate_limit ----
+my %cfg_sec = ( %cfg, ssrf_allow_private => 'yes', rate_limit => '30' );
+ai_cfg_write(%cfg_sec);
+my %cfg_sec2 = ai_cfg_read();
+ok($cfg_sec2{ssrf_allow_private} eq 'yes' && $cfg_sec2{rate_limit} eq '30',
+   'config: ssrf_allow_private/rate_limit roundtrip');
+ai_cfg_write(%cfg);
+
 print "\nRESULT: $pass passed, $fail failed\n";
 exit($fail ? 1 : 0);

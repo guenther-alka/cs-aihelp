@@ -81,8 +81,29 @@ func TestSearchAPI(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	res := searchAPI("zfs", 5, srv.URL+"/cse?q={q}", "")
+	res := searchAPI("zfs", 5, srv.URL+"/cse?q={q}", "", false)
 	if len(res) != 2 || res[0].URL != "https://example.com/1" {
 		t.Errorf("results = %+v", res)
+	}
+}
+
+func TestRateLimiter(t *testing.T) {
+	rl := newRateLimiter()
+	// burst of 3 allowed (limit 60/min), then exhausted immediately
+	for i := 0; i < 3; i++ {
+		if !rl.allow("10.0.0.1", 3) {
+			t.Fatalf("request %d should be allowed", i+1)
+		}
+	}
+	if rl.allow("10.0.0.1", 3) {
+		t.Error("4th request should be rate-limited")
+	}
+	// other IP unaffected
+	if !rl.allow("10.0.0.2", 3) {
+		t.Error("other IP should not be limited")
+	}
+	// limit 0 = off
+	if !rl.allow("10.0.0.1", 0) {
+		t.Error("rate_limit=0 must be off")
 	}
 }

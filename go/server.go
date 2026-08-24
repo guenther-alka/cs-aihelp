@@ -13,14 +13,64 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type server struct {
 	app *App
+	rl  *rateLimiter
 }
 
-func newServer(a *App) *server { return &server{app: a} }
+func newServer(a *App) *server {
+	return &server{app: a, rl: newRateLimiter()}
+}
+
+// rateLimiter -- K2: per-IP token bucket (refill = perMin/60 per second).
+type rateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*tokenBucket
+}
+
+type tokenBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newRateLimiter() *rateLimiter { return &rateLimiter{buckets: map[string]*tokenBucket{}} }
+
+func (r *rateLimiter) allow(ip string, perMin int) bool {
+	if perMin <= 0 {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	b := r.buckets[ip]
+	if b == nil {
+		b = &tokenBucket{tokens: float64(perMin), last: time.Now()}
+		r.buckets[ip] = b
+	}
+	now := time.Now()
+	elapsed := now.Sub(b.last).Seconds()
+	b.last = now
+	b.tokens += elapsed * float64(perMin) / 60.0
+	if b.tokens > float64(perMin) {
+		b.tokens = float64(perMin)
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+func clientIP(remote string) string {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return remote
+	}
+	return host
+}
 
 // ipAllowed reports whether the client IP passes the allowed_ip list.
 func (s *server) ipAllowed(remote string) bool {
@@ -68,6 +118,10 @@ func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+		}
+		if !s.rl.allow(clientIP(r.RemoteAddr), cfg.RateLimit) {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
 		}
 		next(w, r)
 	}

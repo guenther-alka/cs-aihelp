@@ -99,6 +99,8 @@ Daemon-only config keys (in the same `_cfg/cs-aihelp`):
 | `auth_token` | bearer token (mandatory when `listen` is not loopback) |
 | `tls_cert` / `tls_key` | default = the `webserver.pl` certificate (`_cfg/webserver/cert/server.crt`/`.key`) |
 | `cors_origin` | frontend origin for CORS pinning (optional) |
+| `ssrf_allow_private` | `no` \| `yes` — allow RFC1918/private endpoints (LAN-only remote Ollama); metadata/link-local stay blocked |
+| `rate_limit` | max requests/min per client IP in the daemon (0 = off, default 60) |
 
 Security: IP allowlist + constant-time bearer-token check, SSRF guard on all
 configured endpoints, TLS with the same certificate the web-GUI uses (so

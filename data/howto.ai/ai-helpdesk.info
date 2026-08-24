@@ -61,9 +61,14 @@ CONFIG KEYS (_cfg/cs-aihelp)
                 such answers are marked "via free (Fallback)"
   log           on | off -- minimal metadata log (tmp/cs-aihelp.log, never the
                 question text); off = no log (default on)
+  ssrf_allow_private no | yes -- allow RFC1918/private endpoints (LAN-only
+                remote Ollama / local OpenAI-compatible servers); link-local,
+                cloud-metadata and reserved ranges stay blocked (default no)
+  rate_limit    max requests per minute per client IP in the Go daemon
+                (0 = off, default 60)
   (SSRF guard)  provider endpoint and research_endpoint are validated:
-                http(s) only; private/link-local/reserved addresses are
-                blocked (loopback stays allowed for local Ollama/search)
+                http(s) only; link-local/metadata/reserved are blocked;
+                loopback allowed; RFC1918 only with ssrf_allow_private=yes
 
 COMMUNICATION / UX
 ------------------
