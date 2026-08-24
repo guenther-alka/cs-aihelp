@@ -45,7 +45,16 @@ use HTTP::Tiny;
 use JSON::PP qw(encode_json decode_json);
 use URI::Escape qw(uri_escape_utf8 uri_unescape);
 
-use vars qw($wpath $dpath $tpath %in);
+use vars qw($wpath $dpath $tpath %in %txt);
+
+# i18n: read %txt (populated by get_language2 from the lang files, e.g.
+# lang/<lang>/ai_helpdesk.txt / help.txt) with an English fallback when the
+# key is missing or %txt is not populated (e.g. standalone CGI/test context).
+sub ai_txt {
+    my ($key, $fb) = @_;
+    return $fb unless %txt;   # %txt not populated (e.g. standalone/test context)
+    return (exists $txt{$key} && defined $txt{$key} && $txt{$key} ne '') ? $txt{$key} : $fb;
+}
 
 ################  configuration defaults
 sub ai_cfg_defaults {
@@ -55,7 +64,12 @@ sub ai_cfg_defaults {
         endpoint      => '',        # full chat-completions/messages URL ('' = provider default)
         model         => '',        # '' = provider default
         api_key       => '',        # cloud providers only; NEVER logged
-        exec_mode     => 'off',     # off | propose | confirm | auto (Stufe 2 reserved)
+        mode2         => '',        # slot 2 / act-provider (Cline-style): empty = use slot 1
+        provider2     => 'openai',
+        endpoint2     => '',
+        model2        => '',
+        api_key2      => '',
+        free_model2   => '',
         tool_use      => 'no',      # yes = attach read-only live state (Stufe 1)
         max_context   => 8000,      # system prompt budget in chars
         history       => 'month',   # off | today | week | month | 6months | all
@@ -170,8 +184,9 @@ sub ai_cfg_write {
     my $path = ai_cfg_path();
     my ($dir) = $path =~ m{(.*)/[^/]+$};
     mkdir $dir unless -d $dir;          # _cfg/ may be missing on a fresh install
-    my @keys = qw(mode provider endpoint model api_key exec_mode tool_use max_context
-                  history history_turns free_model widget research research_max
+    my @keys = qw(mode provider endpoint model api_key free_model mode2 provider2
+                  endpoint2 model2 api_key2 free_model2 exec_mode tool_use max_context
+                  history history_turns widget research research_max
                   research_endpoint research_key fallback log ssrf_allow_private rate_limit
                   exec_access exec_allow exec_deny autostart widget_input_lines widget_answer_height);
     my @lines = (
@@ -311,8 +326,26 @@ sub ai_parse_action {
 #               private, no key), falls back to Pollinations.AI simple GET
 #               (instant, no account, experimental/rate-limited).
 # mode=provider -> stored provider/endpoint/model/key (empty fields = defaults)
+#
+# Two slots (Cline-style, v1.1): slot 'plan' (default, RO) uses mode/provider/
+# endpoint/model/api_key/free_model; slot 'act' uses the mode2/provider2/.../
+# keys and falls back to slot 1 when mode2 is empty. The slot is read from a
+# transient 'slot' key in the passed hash.
 sub ai_resolve {
     my %cfg = @_;
+    my $slot = ai_trim($cfg{slot} // 'plan');
+    $slot = 'act' if $slot eq 'act';
+    my $m2 = ai_trim($cfg{mode2} // '');
+    if ($slot eq 'act' && $m2 ne '' && $m2 ne 'off') {
+        %cfg = (
+            mode       => ai_trim($cfg{mode2}),
+            provider   => ai_trim($cfg{provider2} // ''),
+            endpoint   => ai_trim($cfg{endpoint2} // ''),
+            model      => ai_trim($cfg{model2} // ''),
+            api_key    => ai_trim($cfg{api_key2} // ''),
+            free_model => ai_trim($cfg{free_model2} // ''),
+        );
+    }
     my $mode = ai_trim($cfg{mode} // 'off');
     return undef if $mode eq 'off';
     if ($mode eq 'free') {
@@ -322,6 +355,7 @@ sub ai_resolve {
             model      => '',
             free_model => ai_trim($cfg{free_model} // ''),
             api_key    => '',
+            slot       => $slot,
         };
     }
     my $provider = ai_trim($cfg{provider} // 'openai');
@@ -344,6 +378,7 @@ sub ai_resolve {
         endpoint => $endpoint,
         model    => $model,
         api_key  => ai_trim($cfg{api_key} // ''),
+        slot     => $slot,
     };
 }
 
@@ -688,8 +723,9 @@ sub _ai_free_pollinations {
 
 ################  orchestrator: question (+ optional prior turns) -> answer
 sub ai_ask {
-    my ($question, $context, $live_state, $hist_msgs, $tool_results) = @_;
+    my ($question, $context, $live_state, $hist_msgs, $tool_results, $provider_use) = @_;
     my %cfg = ai_cfg_read();
+    $cfg{slot} = ($provider_use eq 'act') ? 'act' : 'plan';
     my $resolved = ai_resolve(%cfg);
     return { error => 'AI Helpdesk ist deaktiviert (mode=off). Aktiviere ihn unter System > Services > AI Helpdesk.' }
         unless $resolved;
@@ -756,6 +792,7 @@ sub ai_ask {
     $r->{sources} = [ map { $_->{file} } @retrieved ] if @retrieved;
     push @{$r->{sources}}, map { $_->{url} } @research if @research;
     $r->{mode} = $mode;
+    $r->{provider_use} = $resolved->{slot} // 'plan';
     return $r;
 }
 
@@ -879,22 +916,30 @@ sub ai_chat_js {
 <script>
 var _aiId='%%ID%%', _aiMember='%%MEMBER%%', _aiL1='%%L1%%', _aiL2='%%L2%%', _aiL3='%%L3%%', _aiConv='';
 var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%;
+var _aiT={
+  answering:'%%T_ANSWERING%%', error:'%%T_ERROR%%', settings:'%%T_SETTINGS%%',
+  ratelimit:'%%T_RATELIMIT%%', proverr:'%%T_PROVERR%%', session:'%%T_SESSION%%',
+  copy:'%%T_COPY%%', sources:'%%T_SOURCES%%', plan:'%%T_PLAN%%',
+  actionfs:'%%T_ACTIONFS%%', suggest:'%%T_SUGGEST%%', reason:'%%T_REASON%%',
+  exec:'%%T_EXEC%%', abort:'%%T_ABORT%%', proposeonly:'%%T_PROPOSEONLY%%',
+  running:'%%T_RUNNING%%', output:'%%T_OUTPUT%%', cmd:'%%T_CMD%%'
+};
 function _aiEsc(s){ s=String(s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _aiAppend(log, html, cls){ var el=document.createElement('div'); el.className=cls||''; el.innerHTML=html; log.appendChild(el); log.scrollTop=log.scrollHeight; return el; }
-function _aiTimer(el){ var t=0; el._t=setInterval(function(){ t++; el.innerHTML='<i>antwortet ... ('+t+'s)</i>'; },1000); }
+function _aiTimer(el){ var t=0; el._t=setInterval(function(){ t++; el.innerHTML='<i>'+_aiT.answering+' ('+t+'s)</i>'; },1000); }
 function _aiErr(e){
-  e=String(e||'Fehler');
-  if(/deaktiviert|mode=off/i.test(e)) return 'Helpdesk deaktiviert. <a href="/cgi-bin/admin.pl?id='+_aiId+'&member='+_aiMember+'&l1=10&l2=05&l3=70">Settings</a>';
-  if(/rate|429|too many|limit/i.test(e)) return 'Free-Modus Rate-Limit: bitte kurz warten (~15 s) und erneut fragen.';
-  if(/http \d/.test(e)) return 'Provider nicht erreichbar ('+e+')';
-  if(/session|token|wrong ip|not allowed/i.test(e)) return 'Session abgelaufen - bitte neu anmelden.';
+  e=String(e||_aiT.error);
+  if(/deaktiviert|mode=off/i.test(e)) return _aiT.settings+' <a href="/cgi-bin/admin.pl?id='+_aiId+'&member='+_aiMember+'&l1=12">Settings</a>';
+  if(/rate|429|too many|limit/i.test(e)) return _aiT.ratelimit;
+  if(/http \d/.test(e)) return _aiT.proverr+' ('+e+')';
+  if(/session|token|wrong ip|not allowed/i.test(e)) return _aiT.session;
   return e;
 }
 function _aiAnswerHtml(d){
   var h='<div style="display:flex;align-items:flex-start"><div style="flex:1">'+d.answer+'</div>'
-    +'<button onclick="_aiCopy(this)" style="margin-left:8px;font-size:11px;padding:2px 8px" title="Antwort kopieren">Kopieren</button></div>';
+    +'<button onclick="_aiCopy(this)" style="margin-left:8px;font-size:11px;padding:2px 8px" title="'+_aiT.copy+'">'+_aiT.copy+'</button></div>';
   if(d.via){ h+='<div class="aihelp_v">via '+_aiEsc(d.via)+'</div>'; }
-  if(d.sources && d.sources.length){ h+='<div class="aihelp_s">Quellen: '+_aiEsc(d.sources.join(', '))+'</div>'; }
+  if(d.sources && d.sources.length){ h+='<div class="aihelp_s">'+_aiT.sources+': '+_aiEsc(d.sources.join(', '))+'</div>'; }
   return h;
 }
 function _aiCopy(btn){
@@ -902,7 +947,7 @@ function _aiCopy(btn){
   var box=btn.parentNode.firstChild;
   if(box){ txt=(box.innerText||box.textContent||''); }
   if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt); }
-  btn.innerHTML='OK'; setTimeout(function(){ btn.innerHTML='Kopieren'; }, 1200);
+  btn.innerHTML='OK'; setTimeout(function(){ btn.innerHTML=_aiT.copy; }, 1200);
 }
 function _aiAccessMode(){
   var r=document.getElementsByName('aihelp_access'), access='ro';
@@ -911,18 +956,21 @@ function _aiAccessMode(){
   if(m && m.value){ mode=m.value; }
   var plan=false, p=document.getElementById('aihelp_plan');
   if(p){ plan=p.checked; }
-  return {access:access, mode:mode, plan:plan};
+  var provider='plan', pr=document.getElementById('aihelp_provider');
+  if(!pr){ pr=document.getElementById('aihelp_p_provider'); }
+  if(pr && pr.value){ provider=pr.value; }
+  return {access:access, mode:mode, plan:plan, provider:provider};
 }
 function _aiCall(log, question, toolResults){
   if(_aiBusy) return;
   _aiBusy=true;
-  var wait=_aiAppend(log,'<i>antwortet ...</i>','aihelp_w');
+  var wait=_aiAppend(log,'<i>'+_aiT.answering+'</i>','aihelp_w');
   _aiTimer(wait);
   var tb=_aiAccessMode();
   var q=question;
-  if(q && tb.plan){ q='[Plan-Modus] Nenne zuerst einen klaren Plan der Schritte. Warte auf die Bestaetigung des Benutzers, bevor du eine Aktion vorschlaegst. Frage: '+q; }
+  if(q && tb.plan){ q=_aiT.plan+q; }
   fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,question:q,conv:_aiConv,tool_results:toolResults})})
+    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,question:q,conv:_aiConv,tool_results:toolResults,provider_use:tb.provider})})
   .then(function(r){ return r.json(); })
   .then(function(d){
     if(wait._t){ clearInterval(wait._t); }
@@ -930,17 +978,17 @@ function _aiCall(log, question, toolResults){
     _aiBusy=false;
     if(d && d.ok){
       _aiConv=d.conv||_aiConv;
-      if(question) _aiAppend(log,'<b>Frage:</b> '+_aiEsc(question),'aihelp_q');
+      if(question) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(question),'aihelp_q');
       _aiAppend(log,_aiAnswerHtml(d),'aihelp_a');
       if(d.action){
-        if(_aiPopup){ _aiAppend(log,'<span class="aihelp_s">Aktion nur im Full-Screen Helpdesk ausfuehrbar (Help &gt; AI Helpdesk).</span>','aihelp_s'); }
+        if(_aiPopup){ _aiAppend(log,'<span class="aihelp_s">'+_aiT.actionfs+'</span>','aihelp_s'); }
         else { _aiShowAction(log, d.action, tb); }
       }
     } else {
       _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
     }
   })
-  .catch(function(e){ if(wait._t){ clearInterval(wait._t); } if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiBusy=false; _aiAppend(log,'<span style="color:#a00">Fehler: '+_aiEsc(e)+'</span>','aihelp_e'); });
+  .catch(function(e){ if(wait._t){ clearInterval(wait._t); } if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiBusy=false; _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
 }
 function _aiAsk(logId, inpId, btnId){
   var log=document.getElementById(logId||'%%LOGID%%');
@@ -952,14 +1000,14 @@ function _aiAsk(logId, inpId, btnId){
   _aiCall(log, q, []);
 }
 function _aiShowAction(log, action, tb){
-  _aiAppend(log,'<div class="aihelp_x"><b>Vorgeschlagener Befehl:</b><br><code>'+_aiEsc(action.cmd)+'</code>'
-    +(action.reason?('<br><span class="aihelp_s">Grund: '+_aiEsc(action.reason)+'</span>'):'')+'</div>','aihelp_x');
+  _aiAppend(log,'<div class="aihelp_x"><b>'+_aiT.suggest+'</b><br><code>'+_aiEsc(action.cmd)+'</code>'
+    +(action.reason?('<br><span class="aihelp_s">'+_aiT.reason+': '+_aiEsc(action.reason)+'</span>'):'')+'</div>','aihelp_x');
   if(tb.mode==='propose' || tb.access==='ro'){
-    _aiAppend(log,'<span class="aihelp_s">Nur Vorschlag (propose) - nicht ausgefuehrt.</span>','aihelp_s');
+    _aiAppend(log,'<span class="aihelp_s">'+_aiT.proposeonly+'</span>','aihelp_s');
     return;
   }
   if(tb.mode==='auto'){
-    _aiAppend(log,'<span class="aihelp_s">auto: fuehre aus (toolbar Abbrechen stoppt naechsten Schritt) ...</span>','aihelp_s');
+    _aiAppend(log,'<span class="aihelp_s">auto: '+_aiT.running+'</span>','aihelp_s');
     _aiExec(log, action);
     return;
   }
@@ -967,8 +1015,8 @@ function _aiShowAction(log, action, tb){
   var cmdAttr=_aiEsc(action.cmd).replace(/\n/g,' ');
   var rsnAttr=_aiEsc(action.reason||'').replace(/\n/g,' ');
   var html='<div id="'+key+'">'
-    +'<button onclick="_aiExecById(\''+key+'\', this)" data-c="'+cmdAttr+'" data-r="'+rsnAttr+'" style="margin:2px;padding:4px 12px">Ausf&#252;hren</button>'
-    +'<button onclick="var el=document.getElementById(\''+key+'\');el.innerHTML=\'<span class=&quot;aihelp_s&quot;>abgebrochen</span>\'" style="margin:2px;padding:4px 12px">Abbrechen</button>'
+    +'<button onclick="_aiExecById(\''+key+'\', this)" data-c="'+cmdAttr+'" data-r="'+rsnAttr+'" style="margin:2px;padding:4px 12px">'+_aiT.exec+'</button>'
+    +'<button onclick="var el=document.getElementById(\''+key+'\');el.innerHTML=\'<span class=&quot;aihelp_s&quot;>'+_aiT.abort+'</span>\'" style="margin:2px;padding:4px 12px">'+_aiT.abort+'</button>'
     +'</div>';
   _aiAppend(log, html, 'aihelp_act');
 }
@@ -979,43 +1027,25 @@ function _aiExecById(key, btn){
   _aiExec(log, action);
 }
 function _aiExec(log, action){
-  _aiAppend(log,'<b>Befehl:</b> <code>'+_aiEsc(action.cmd)+'</code>','aihelp_x');
-  var wait=_aiAppend(log,'<i>fuehre aus ...</i>','aihelp_w');
+  _aiAppend(log,'<b>'+_aiT.cmd+':</b> <code>'+_aiEsc(action.cmd)+'</code>','aihelp_x');
+  var wait=_aiAppend(log,'<i>'+_aiT.running+'</i>','aihelp_w');
   fetch('/cgi-bin/cs-aihelp-exec.pl',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({id:_aiId,member:_aiMember,cmd:action.cmd})})
   .then(function(r){ return r.json(); })
   .then(function(d){
     if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); }
     if(d && d.ok){
-      _aiAppend(log,'<div class="aihelp_o"><b>Output</b><br><pre>'+_aiEsc(d.output)+'</pre></div>','aihelp_o');
+      _aiAppend(log,'<div class="aihelp_o"><b>'+_aiT.output+'</b><br><pre>'+_aiEsc(d.output)+'</pre></div>','aihelp_o');
       _aiTool=[d.output];
       _aiCall(log, '', _aiTool);      /* agentic loop: feed output back to the AI */
     } else {
       _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
     }
   })
-  .catch(function(e){ if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiAppend(log,'<span style="color:#a00">Fehler: '+_aiEsc(e)+'</span>','aihelp_e'); });
+  .catch(function(e){ if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
 }
 function _aiAbort(){ _aiBusy=false; }
 function _aiNew(logId){ _aiConv=''; _aiTool=[]; _aiBusy=false; var log=document.getElementById(logId); if(log){ log.innerHTML=''; } }
-function _aiLoadConv(logId, convId){
-  fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,action:'load',conv:convId})})
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    if(d && d.ok){
-      _aiConv=convId; _aiTool=[];
-      var log=document.getElementById(logId);
-      if(!log){ return; }
-      log.innerHTML='';
-      (d.messages||[]).forEach(function(m){
-        var cls=(m.role==='user')?'aihelp_q':'aihelp_a';
-        var h=(m.role==='user')?('<b>Frage:</b> '+_aiEsc(m.text)):_aiEsc(m.text);
-        _aiAppend(log,h,cls);
-      });
-    }
-  });
-}
 function _aiKey(e, logId, inpId, btnId){ if(e.key==='Enter' && (e.ctrlKey || e.metaKey)){ _aiAsk(logId, inpId, btnId); } }
 function _aiFocus(inpId){ var i=document.getElementById(inpId); if(i){ i.focus(); } }
 </script>
@@ -1030,6 +1060,32 @@ EoJS
     $js =~ s/%%LOGID%%/$logid/g;
     $js =~ s/%%INPID%%/$inpid/g;
     $js =~ s/%%POPUP%%/(($widget eq 'popup') ? 1 : 0)/eg;
+    # i18n strings (lang/help.txt, ai_* keys) with English fallback
+    my $t = sub {
+        my ($k, $fb) = @_;
+        my $v = ai_txt($k, $fb);
+        $v =~ s/\\/\\\\/g;
+        $v =~ s/'/\\'/g;
+        return $v;
+    };
+    $js =~ s/%%T_ANSWERING%%/$t->('ai_answering', 'answering ...')/eg;
+    $js =~ s/%%T_ERROR%%/$t->('ai_error', 'Error')/eg;
+    $js =~ s/%%T_SETTINGS%%/$t->('ai_disabled_link', 'AI Helpdesk is disabled (mode=off). Enable it under')/eg;
+    $js =~ s/%%T_RATELIMIT%%/$t->('ai_ratelimit', 'Free mode rate limit: please wait (~15 s) and try again.')/eg;
+    $js =~ s/%%T_PROVERR%%/$t->('ai_proverr', 'Provider not reachable')/eg;
+    $js =~ s/%%T_SESSION%%/$t->('ai_session', 'Session expired - please log in again.')/eg;
+    $js =~ s/%%T_COPY%%/$t->('ai_copy', 'Copy')/eg;
+    $js =~ s/%%T_SOURCES%%/$t->('ai_sources', 'Sources')/eg;
+    $js =~ s/%%T_PLAN%%/$t->('ai_plan_prompt', '[Plan mode] First present a clear plan of the steps and wait for user confirmation before proposing an action. Question: ')/eg;
+    $js =~ s/%%T_ACTIONFS%%/$t->('ai_action_only_fullscreen', 'Action can only be executed in the full-screen Helpdesk (Help > AI Helpdesk).')/eg;
+    $js =~ s/%%T_SUGGEST%%/$t->('ai_suggestion', 'Proposed command:')/eg;
+    $js =~ s/%%T_REASON%%/$t->('ai_reason', 'Reason')/eg;
+    $js =~ s/%%T_EXEC%%/$t->('ai_confirm_exec', 'Execute')/eg;
+    $js =~ s/%%T_ABORT%%/$t->('ai_abort', 'Abort')/eg;
+    $js =~ s/%%T_PROPOSEONLY%%/$t->('ai_propose_only', 'Proposal only - not executed.')/eg;
+    $js =~ s/%%T_RUNNING%%/$t->('ai_running', 'running ...')/eg;
+    $js =~ s/%%T_OUTPUT%%/$t->('ai_output', 'Output')/eg;
+    $js =~ s/%%T_CMD%%/$t->('ai_question', 'Question')/eg;
     return $js;
 }
 
@@ -1042,14 +1098,14 @@ sub ai_chat_page {
 
     if ($mode eq 'off') {
         print "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>"
-            . "AI Helpdesk ist deaktiviert (mode=off). Aktiviere ihn unter "
+            . ai_txt('ai_disabled_link', 'AI Helpdesk is disabled (mode=off). Enable it under ') 
             . "<a href=\"/cgi-bin/admin.pl?id=" . ai_esc($id) . "&amp;member=" . ai_esc($member || '')
-            . "&amp;l1=10&amp;l2=05&amp;l3=70\"><b>System &gt; Services &gt; AI Helpdesk</b></a>.</div><br><br>\n";
+            . "&amp;l1=12\"><b>AI Helpdesk</b></a>.</div><br><br>\n";
         return;
     }
 
     my $mode_badge = ($mode eq 'free')
-        ? "<span style='color:darkgreen'><b>free</b></span> (Ollama lokal / Pollinations-Fallback -- kein Key)"
+        ? "<span style='color:darkgreen'><b>free</b></span> (local Ollama / Pollinations fallback -- no key)"
         : "<span style='color:#234'><b>provider</b></span>";
     my $access = ai_trim($aicfg{exec_access} // 'ro');
     my $emode  = ai_trim($aicfg{exec_mode} // 'confirm');
@@ -1062,29 +1118,10 @@ sub ai_chat_page {
     my ($ro_chk, $exec_chk, $console_chk) = ($chk->('ro'), $chk->('exec'), $chk->('console'));
     my ($propose_sel, $confirm_sel, $auto_sel) = ($sel->('propose'), $sel->('confirm'), $sel->('auto'));
 
-    # ---- history list (if enabled) ----
-    my $hist_opts = '';
-    my $retention = ai_trim($aicfg{history} // 'month');
-    if ($retention ne 'off') {
-        ai_history_cleanup($retention);
-        my @conv = ai_history_list();
-        for my $c (@conv) {
-            my @lt = localtime($c->{mtime});
-            my $ts = sprintf("%02d.%02d. %02d:%02d", $lt[3], $lt[4]+1, $lt[2], $lt[1]);
-            my $title = ($c->{title} ne '') ? $c->{title} : $c->{id};
-            $title = substr($title, 0, 48);
-            $hist_opts .= "<option value=\"" . ai_esc($c->{id}) . "\">" . ai_esc("$ts -- $title") . "</option>\n";
-        }
-        if ($hist_opts ne '') {
-            $hist_opts = "<span title=\"Verlauf (Aufbewahrung: $retention)\"><select id=\"aihelp_hist\" style=\"max-width:220px\">$hist_opts</select>"
-                . "<button onclick=\"var s=document.getElementById('aihelp_hist');if(s.value){_aiLoadConv('aihelp_log',s.value);}\" style=\"margin-left:4px;padding:4px 10px\">Laden</button></span>";
-        }
-    }
-
-    # ---- quick questions ----
-    my @quick = ('Wie lege ich einen Snap-Job an?',
-                 'Warum schlaegt meine Replikation fehl?',
-                 'Wie aktiviere ich SMB-Shares?');
+    # ---- quick questions (translated) ----
+    my @quick = ( ai_txt('ai_q_snap', 'How do I create a snap job?'),
+                  ai_txt('ai_q_repl', 'Why is my replication failing?'),
+                  ai_txt('ai_q_smb',  'How do I enable SMB shares?') );
     my $quick = join("\n", map {
         "<button onclick=\"var i=document.getElementById('aihelp_q');i.value='" . ai_esc($_) . "';_aiAsk('aihelp_log','aihelp_q','aihelp_send');\" style='margin:2px;padding:3px 8px;font-size:12px'>" . ai_esc($_) . "</button>"
     } @quick);
@@ -1093,25 +1130,29 @@ sub ai_chat_page {
 <div id="aihelp_page" style="width:100%;height:calc(100vh - 150px);min-height:520px;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6;margin-bottom:6px">
     <b>AI Helpdesk -- $member</b>
-    <span style="color:#888;font-size:12px">Modus:</span>
+    <span style="color:#888;font-size:12px">Provider:</span>
+    <select id="aihelp_provider">
+      <option value="plan" selected>plan</option>
+      <option value="act">act</option>
+    </select>
+    <span style="color:#888;font-size:12px">Mode:</span>
     <label><input type="radio" name="aihelp_access" value="ro"$ro_chk> ro</label>
     <label><input type="radio" name="aihelp_access" value="exec"$exec_chk> exec</label>
     <label><input type="radio" name="aihelp_access" value="console"$console_chk> console</label>
-    <span style="color:#888;font-size:12px">Aktionen:</span>
+    <span style="color:#888;font-size:12px">Actions:</span>
     <select id="aihelp_mode">
       <option value="propose"$propose_sel>propose</option>
       <option value="confirm"$confirm_sel>confirm</option>
       <option value="auto"$auto_sel>auto</option>
     </select>
-    <label title="Erst Plan nennen, dann auf Bestaetigung warten"><input type="checkbox" id="aihelp_plan"> Plan zuerst</label>
-    <button onclick="_aiAbort()" style="padding:4px 10px" title="Agentic-Loop stoppen">Abbrechen</button>
-    <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Neues Gespraech beginnen">Neu</button>
-    $hist_opts
+    <label title="Present a plan first and wait for confirmation"><input type="checkbox" id="aihelp_plan" checked> Plan first</label>
+    <button onclick="_aiAbort()" style="padding:4px 10px" title="Stop the agentic loop">Abort</button>
+    <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
   </div>
   <div style="flex:1;display:flex;flex-direction:column;min-height:0">
     <div style="flex:2;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff">
-      <div style="font-size:11px;color:#888;margin-bottom:2px">Frage (Strg+Enter senden): $quick</div>
-      <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent" placeholder="Frage ..."></textarea>
+      <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Ctrl+Enter to send): $quick</div>
+      <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent" placeholder="Question ..."></textarea>
     </div>
     <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff;margin-top:6px"></div>
   </div>
@@ -1121,7 +1162,7 @@ sub ai_chat_page {
   _aiFocus('aihelp_q');
 </script>
 EoH
-    print "<p style='color:#888;font-size:11px'>Modus: $mode_badge &nbsp; exec_access: $acc_badge &nbsp; exec_deny wird immer angewendet. Antworten basieren auf der napp-it-Dokumentation (data/howto.ai).</p>\n";
+    print "<p style='color:#888;font-size:11px'>Mode: $mode_badge &nbsp; exec_access: $acc_badge &nbsp; exec_deny is always applied. Answers are based on the napp-it documentation (data/howto.ai).</p>\n";
     print ai_chat_js('page', $member, $l1, $l2, $l3);
     # demonstrate the context-sensitive floating popup on this page as well
     ai_popup($member, $l1, $l2, $l3);
@@ -1148,8 +1189,8 @@ sub ai_popup {
     $aheight = $ah if $ah =~ /^\d+$/ && $ah >= 100 && $ah <= 1200;
 
     my $q_ctl = ($ilines == 1)
-        ? "<input id=\"aihelp_p_q\" type=\"text\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Frage ... (Enter)\">"
-        : "<textarea id=\"aihelp_p_q\" rows=\"$ilines\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Frage ... (Enter)\"></textarea>";
+        ? "<input id=\"aihelp_p_q\" type=\"text\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ... (Enter)\">"
+        : "<textarea id=\"aihelp_p_q\" rows=\"$ilines\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ... (Enter)\"></textarea>";
 
     print <<"EoP";
 <style>
@@ -1171,16 +1212,23 @@ sub ai_popup {
 .aihelp_act{margin:4px 0}
 </style>
 EoP
-    print "<button id=\"aihelp_btn\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">KI fragen</button>\n";
+    print "<button id=\"aihelp_btn\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
 <div id="aihelp_box">
   <div id="aihelp_p_hdr" onmousedown="return dragStart(event,'aihelp_box')"><span>AI Helpdesk</span><span style="font-weight:normal">RO</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <span style="font-size:11px;color:#888">Provider:</span>
+      <select id="aihelp_p_provider" style="font-size:11px">
+        <option value="plan" selected>plan</option>
+        <option value="act">act</option>
+      </select>
+    </div>
     $q_ctl
     <div style="margin-top:4px;text-align:right">
       <button id="aihelp_p_btn" onclick="_aiAsk('aihelp_p_log','aihelp_p_q','aihelp_p_btn')" style="padding:5px 10px">Ask</button>
-      <button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="Neues Gespraech">Neu</button>
+      <button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
     </div>
     <script>
       var _pq=document.getElementById('aihelp_p_q');

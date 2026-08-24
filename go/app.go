@@ -50,21 +50,23 @@ func (a *App) Config() *Config {
 }
 
 type AskRequest struct {
-	Question    string   `json:"question"`
-	Context     string   `json:"context"`
-	LiveState   string   `json:"live_state"`
-	Conv        string   `json:"conv"`
-	Stream      bool     `json:"stream"`
-	ToolResults []string `json:"tool_results"` // Level 2: outputs of executed commands
+	Question     string   `json:"question"`
+	Context      string   `json:"context"`
+	LiveState    string   `json:"live_state"`
+	Conv         string   `json:"conv"`
+	Stream       bool     `json:"stream"`
+	ToolResults  []string `json:"tool_results"` // Level 2: outputs of executed commands
+	ProviderUse  string   `json:"provider_use"` // "plan" (default) | "act" (slot 2)
 }
 
 type AskResult struct {
-	Answer  string   `json:"answer"`
-	Sources []string `json:"sources"`
-	Mode    string   `json:"mode"`
-	Conv    string   `json:"conv"`
-	Via     string   `json:"via,omitempty"`
-	Action  *Action  `json:"action,omitempty"` // Level 2: proposed command (exec via Perl CGI)
+	Answer       string   `json:"answer"`
+	Sources      []string `json:"sources"`
+	Mode         string   `json:"mode"`
+	Conv         string   `json:"conv"`
+	Via          string   `json:"via,omitempty"`
+	Action       *Action  `json:"action,omitempty"` // Level 2: proposed command (exec via Perl CGI)
+	ProviderUse  string   `json:"provider_use"`     // slot actually used
 }
 
 // Action is a single command the model proposes to execute (parsed from
@@ -109,7 +111,7 @@ func execHintFor(cfg *Config) string {
 }
 
 func (a *App) Ask(req AskRequest, member string) (AskResult, error) {
-	cfg := a.Config()
+	cfg := applyProviderSlot(a.Config(), req.ProviderUse)
 	if cfg.Mode == "off" {
 		return AskResult{}, ErrDisabled
 	}
@@ -235,7 +237,11 @@ func (a *App) Ask(req AskRequest, member string) (AskResult, error) {
 		cleanupConvs(a.base, cfg.History)
 	}
 
-	return AskResult{Answer: answer, Sources: sources, Mode: cfg.Mode, Conv: convID, Via: via, Action: action}, nil
+	pu := "plan"
+	if req.ProviderUse == "act" {
+		pu = "act"
+	}
+	return AskResult{Answer: answer, Sources: sources, Mode: cfg.Mode, Conv: convID, Via: via, Action: action, ProviderUse: pu}, nil
 }
 
 func fmtN(n int) string {
@@ -243,6 +249,25 @@ func fmtN(n int) string {
 		return " " + string(rune('0'+n))
 	}
 	return string(rune('0' + n/10)) + string(rune('0'+n%10))
+}
+
+// applyProviderSlot resolves the provider slot for a request: "act" plus a
+// configured mode2 uses the slot-2 provider (Cline-style), otherwise slot 1
+// (plan). Mirrors aihelplib's ai_resolve. Returns the effective config.
+func applyProviderSlot(cfg *Config, providerUse string) *Config {
+	eff := *cfg
+	if providerUse == "act" {
+		m2 := strings.TrimSpace(eff.Mode2)
+		if m2 != "" && m2 != "off" {
+			eff.Mode = m2
+			eff.Provider = strings.TrimSpace(eff.Provider2)
+			eff.Endpoint = strings.TrimSpace(eff.Endpoint2)
+			eff.Model = strings.TrimSpace(eff.Model2)
+			eff.APIKey = strings.TrimSpace(eff.APIKey2)
+			eff.FreeModel = strings.TrimSpace(eff.FreeModel2)
+		}
+	}
+	return &eff
 }
 
 var (

@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1.0 (2026-08-24)
+
+**Two provider slots (Cline-style) + localised UI (Basisregel) + KISS history.**
+
+- **`mode2` / `provider2` / `endpoint2` / `model2` / `api_key2` /
+  `free_model2`** — a second provider slot for the **act/exec** model
+  (slot 1 = plan/read-only). Empty `mode2` falls back to slot 1. The
+  Helpdesk/popup toolbar offers a **Provider** `plan | act` selector
+  (`provider_use` in the request, answered as `provider_use` in the
+  response); the Go daemon resolves the same way (`applyProviderSlot`).
+- **Settings form** (now top-level menu `12_AI_Helpdesk`, m-key `m12`):
+  English element labels + short English hints stay English (Basisregel);
+  a detailed, translated **info section after the form** comes from the new
+  language files `lang/{en,de}/ai_helpdesk.txt` (`ai_*` keys, ≤ 3 words).
+- **Help page** (first item in the Help menu, `00_AI_Helpdesk`, m-key
+  `m05.00`): English toolbar, quick questions / status / confirm / info
+  texts translated via `lang/{en,de}/help.txt`, **Plan mode is the default**
+  ("Plan first" checked), provider selector added.
+- **Popup:** "Ask AI" (read-only), English labels, small Provider selector.
+- **KISS history:** one chat history per member — the picker/`_aiLoadConv`
+  is gone; `New` clears, `history` retention only deletes old turns.
+- Tests: Perl 86/86, Go vet + unit green (slot tests in Perl #4b and
+  `go/lifecycle_test.go`).
+
 ## v1.0.2 (2026-08-24)
 
 **Level 2: exec + AI-Dialog (A3) + Status-Ampel AI dot.**

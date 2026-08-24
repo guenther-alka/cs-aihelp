@@ -27,8 +27,8 @@ FILES
                                                  socketlib check_session)
   data/menues/_lib/windows/aihelplib.pl          config, RAG, provider call,
                                                  chat JS/page/popup
-  data/menues/05_Help/50_AI_Helpdesk/action.pl   full chat page
-  data/menues/10_System/05_Services/70_AI_Helpdesk/action.pl  settings
+  data/menues/05_Help/00_AI_Helpdesk/action.pl   full chat page
+  data/menues/12_AI_Helpdesk/action.pl  settings
   _cfg/cs-aihelp                                 config (key = value)
   _cfg/aihelp/conv_*.json                        chat history (per conversation)
 
@@ -39,6 +39,10 @@ CONFIG KEYS (_cfg/cs-aihelp)
   endpoint      full chat-completions/messages URL ('' = provider default)
   model         '' = provider default
   api_key       cloud providers only, never logged
+  mode2         '' | free | provider  (slot 2 / act-provider, Cline-style;
+                '' or off = use slot 1; select plan|act in Helpdesk/popup)
+  provider2     openai | anthropic | ollama
+  endpoint2 / model2 / api_key2 / free_model2   slot-2 provider settings
   exec_access   ro | exec | console                (default ro; Stufe 2)
   exec_mode     propose | confirm | auto           (default confirm; Stufe 2)
   exec_allow    comma list of allowed D2 command classes/prefixes

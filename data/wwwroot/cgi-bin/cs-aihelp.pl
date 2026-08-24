@@ -188,7 +188,8 @@ if ($conv && ref $conv->{messages} eq 'ARRAY') {
     }
 }
 
-my $r = ai_ask($question, $context, $live_state, \@hist_msgs, $in{tool_results});
+my $provider_use = ($in{provider_use} // 'plan') eq 'act' ? 'act' : 'plan';
+my $r = ai_ask($question, $context, $live_state, \@hist_msgs, $in{tool_results}, $provider_use);
 
 my %resp;
 if (defined $r->{error}) {
@@ -213,7 +214,8 @@ if (defined $r->{error}) {
 
     %resp = ( ok => 1, answer => $answer, sources => $r->{sources} // [],
               mode => $r->{mode} // '', conv => $conv_id,
-              via => $r->{via} // '', action => $r->{action} // undef );
+              via => $r->{via} // '', action => $r->{action} // undef,
+              provider_use => $r->{provider_use} // 'plan' );
 }
 ai_log(sprintf("qlen=%d ok=%d member=%s conv=%s",
     length($question), $resp{ok}, $member, $conv_id));

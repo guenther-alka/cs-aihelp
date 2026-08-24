@@ -25,6 +25,14 @@ type Config struct {
 	ToolUse    bool
 	MaxContext int
 
+	// slot 2 / act provider (Cline-style; empty mode2 = use slot 1)
+	Mode2      string
+	Provider2  string
+	Endpoint2  string
+	Model2     string
+	APIKey2    string
+	FreeModel2 string
+
 	// research
 	Research    string // off | ddg | api
 	ResearchMax int
@@ -136,6 +144,18 @@ func LoadConfig(path string) (*Config, error) {
 			cfg.Model = v
 		case "api_key":
 			cfg.APIKey = v
+		case "mode2":
+			cfg.Mode2 = v
+		case "provider2":
+			cfg.Provider2 = v
+		case "endpoint2":
+			cfg.Endpoint2 = v
+		case "model2":
+			cfg.Model2 = v
+		case "api_key2":
+			cfg.APIKey2 = v
+		case "free_model2":
+			cfg.FreeModel2 = v
 		case "free_model":
 			cfg.FreeModel = v
 		case "fallback":
@@ -233,6 +253,12 @@ func (c *Config) Save() error {
 	fw("model", c.Model)
 	fw("api_key", c.APIKey)
 	fw("free_model", c.FreeModel)
+	fw("mode2", c.Mode2)
+	fw("provider2", c.Provider2)
+	fw("endpoint2", c.Endpoint2)
+	fw("model2", c.Model2)
+	fw("api_key2", c.APIKey2)
+	fw("free_model2", c.FreeModel2)
 	fw("fallback", c.Fallback)
 	fw("tool_use", yn(c.ToolUse))
 	fw("max_context", fmt.Sprintf("%d", c.MaxContext))

@@ -25,6 +25,39 @@ func TestPIDFilePath(t *testing.T) {
 	}
 }
 
+func TestApplyProviderSlot(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Mode = "provider"
+	cfg.Endpoint = "https://plan.example/chat"
+	cfg.Mode2 = "provider"
+	cfg.Endpoint2 = "https://act.example/chat"
+	cfg.Model2 = "act-model"
+
+	// default / plan -> slot 1
+	eff := applyProviderSlot(cfg, "")
+	if eff.Endpoint != "https://plan.example/chat" {
+		t.Errorf("plan slot endpoint = %q", eff.Endpoint)
+	}
+	// act with configured mode2 -> slot 2
+	eff = applyProviderSlot(cfg, "act")
+	if eff.Endpoint != "https://act.example/chat" || eff.Model != "act-model" {
+		t.Errorf("act slot = %q / %q", eff.Endpoint, eff.Model)
+	}
+	// act with empty mode2 -> falls back to slot 1
+	cfg2 := DefaultConfig()
+	eff = applyProviderSlot(cfg2, "act")
+	if eff.Mode != "free" {
+		t.Errorf("empty mode2 should fall back to slot 1, got %q", eff.Mode)
+	}
+	// act with mode2=off -> falls back to slot 1
+	cfg3 := DefaultConfig()
+	cfg3.Mode2 = "off"
+	eff = applyProviderSlot(cfg3, "act")
+	if eff.Mode != "free" {
+		t.Errorf("mode2=off should fall back to slot 1, got %q", eff.Mode)
+	}
+}
+
 func TestPortOpen(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -39,3 +72,4 @@ func TestPortOpen(t *testing.T) {
 		t.Error("portOpen on closed port = true, want false")
 	}
 }
+

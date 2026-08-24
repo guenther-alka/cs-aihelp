@@ -72,6 +72,20 @@ my $rp = ai_resolve(%cfg_prov);
 ok($rp->{endpoint} eq 'http://127.0.0.1:11434/api/chat', "resolve: ollama default endpoint (got $rp->{endpoint})");
 ok($rp->{model} eq 'llama3.1', "resolve: ollama default model (got $rp->{model})");
 
+# ---- 4b. provider slots (v1.1, Cline-style): plan vs act ----
+my %cfg_slot = ( %cfg, mode => 'provider', provider => 'openai', endpoint => 'https://plan.example/chat',
+    mode2 => 'provider', provider2 => 'anthropic', endpoint2 => 'https://act.example/chat', model2 => 'act-model' );
+my $rp1 = ai_resolve(slot => 'plan', %cfg_slot);
+ok($rp1->{endpoint} eq 'https://plan.example/chat', "resolve: plan slot uses slot 1 (got $rp1->{endpoint})");
+my $rp2 = ai_resolve(slot => 'act', %cfg_slot);
+ok($rp2->{provider} eq 'anthropic' && $rp2->{endpoint} eq 'https://act.example/chat',
+   "resolve: act slot uses slot 2 (got $rp2->{provider} / $rp2->{endpoint})");
+my $rp3 = ai_resolve(slot => 'act', %cfg);   # defaults: mode2 empty
+ok($rp3->{endpoint} eq 'http://127.0.0.1:11434', "resolve: act with empty mode2 falls back to slot 1 (got $rp3->{endpoint})");
+my %cfg_m2off = ( %cfg, mode2 => 'off' );
+my $rp4 = ai_resolve(slot => 'act', %cfg_m2off);
+ok($rp4->{endpoint} eq 'http://127.0.0.1:11434', 'resolve: mode2=off falls back to slot 1');
+
 # ---- 5. light-RAG over data/howto.ai ----
 my @docs = ai_retrieve('wie aktiviere ich SMB shares');
 ok(scalar(@docs) > 0, 'RAG: returns hits for SMB question');

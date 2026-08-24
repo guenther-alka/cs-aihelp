@@ -67,11 +67,20 @@ local or cloud LLM — with or without an API key.
   `_cfg/aihelp/conv_*.json`, retention configurable
   (`off | today | week | month | 6months | all`, default `month`), resume any
   earlier conversation from the history list.
-- **Two UIs** — a full chat page (`Help > AI Helpdesk`) and a draggable,
-  context-sensitive **popup** ("Ask AI") injected on every logged-in page
-  (`widget=on`).
+- **Two UIs** — a full chat page (`Help > AI Helpdesk`, first item in the
+  Help menu) and a draggable, context-sensitive **popup** ("Ask AI")
+  injected on every logged-in page (`widget=on`).
+- **Two provider slots (Cline-style)** — slot 1 = plan/read-only provider,
+  slot 2 = act/exec provider; select `plan` or `act` in the Helpdesk/popup
+  menu. Empty `mode2` falls back to slot 1.
+- **Localised UI** — settings form elements and short hints stay English;
+  the explanations/info/confirm texts after the form and in the Helpdesk/
+  popup are translated via the napp-it language files
+  (`lang/*/ai_helpdesk.txt`, `lang/*/help.txt`, menu keys `m05.00`/`m12`).
 - **Nice UX** — quick questions, copy button, elapsed-time indicator, new
   conversation, friendly error texts, mode badge; answers are HTML-escaped.
+  Plan mode ("Plan first") is the default in the Help screen; one chat
+  history per member (`history` = retention only).
 
 ---
 
@@ -156,8 +165,8 @@ perl install.pl /opt/csweb-gui     # default target is /opt/csweb-gui
 |---|---|
 | `data/wwwroot/cgi-bin/cs-aihelp.pl` | JSON CGI (chat backend) |
 | `data/menues/_lib/windows/aihelplib.pl` | shared library |
-| `data/menues/05_Help/50_AI_Helpdesk/action.pl` | chat menu |
-| `data/menues/10_System/05_Services/70_AI_Helpdesk/action.pl` | settings menu |
+| `data/menues/05_Help/00_AI_Helpdesk/action.pl` | chat menu |
+| `data/menues/12_AI_Helpdesk/action.pl` | settings menu |
 | `data/howto.ai/ai-helpdesk.info` | module documentation |
 | `config/cs-aihelp.example` → `_cfg/cs-aihelp` | default config (only if absent) |
 
@@ -185,19 +194,23 @@ file is read on every request.
 
 ## Configuration
 
-The module is configured in **System > Services > AI Helpdesk** (saved to
-`_cfg/cs-aihelp`, a flat `key = value` file, auto-created on first run).
+The module is configured in the **AI Helpdesk** menu (L1 `12_AI_Helpdesk`,
+previously System > Services) — saved to `_cfg/cs-aihelp`, a flat
+`key = value` file, auto-created on first run.
 
 ### Config keys
 
 | Key | Values (default) | Description |
 |---|---|---|
-| `mode` | `off` \| `free` \| `provider` (`free`) | `free` = no key, local Ollama → Pollinations; `provider` = configured endpoint + optional key |
-| `provider` | `openai` \| `anthropic` \| `ollama` (`openai`) | used in `mode=provider` |
-| `endpoint` | URL (empty) | full chat-completions/messages URL; empty = provider default |
-| `model` | string (empty) | empty = provider default (`openai`, `claude-sonnet-5`, `llama3.1`) |
-| `api_key` | string (empty) | cloud providers only; stored server-side, never logged |
-| `free_model` | string (empty) | `mode=free`: local Ollama model tag; empty = first available |
+| `mode` | `off` \| `free` \| `provider` (`free`) | slot 1 (plan/RO): `free` = no key, local Ollama → Pollinations; `provider` = configured endpoint + optional key |
+| `provider` | `openai` \| `anthropic` \| `ollama` (`openai`) | slot 1, used in `mode=provider` |
+| `endpoint` | URL (empty) | slot 1: full chat-completions/messages URL; empty = provider default |
+| `model` | string (empty) | slot 1: empty = provider default (`openai`, `claude-sonnet-5`, `llama3.1`) |
+| `api_key` | string (empty) | slot 1: cloud providers only; stored server-side, never logged |
+| `mode2` | `''` \| `free` \| `provider` (`''`) | slot 2 (act/exec provider, Cline-style); **empty/off = uses slot 1** |
+| `provider2` | `openai` \| `anthropic` \| `ollama` (`openai`) | slot 2, used in `mode2=provider` |
+| `endpoint2` / `model2` / `api_key2` / `free_model2` | (empty) | slot 2 provider settings |
+| `free_model` | string (empty) | slot 1 `mode=free`: local Ollama model tag; empty = first available |
 | `fallback` | `off` \| `free` (`free`) | answer via free tier when `mode=provider` fails |
 | `tool_use` | `no` \| `yes` (`no`) | Level 1: attach read-only live state (hostname, zpool list) |
 | `research` | `off` \| `ddg` \| `api` (`ddg`) | web research; `ddg` = DuckDuckGo Lite (no key), `api` = external endpoint |
@@ -256,19 +269,22 @@ sent to the model as context.
 
 **Help > AI Helpdesk** opens the full-screen chat page (100% width/height):
 
-- **Toolbar:** `ro | exec | console` radio (mirrors `exec_access`),
-  `propose | confirm | auto` select (mirrors `exec_mode`), optional
-  **"Plan zuerst"** toggle (the AI presents a plan and waits for your
-  go-ahead before proposing actions), **Abbrechen** (stops the agentic
-  loop), **Neu** (new conversation) and the **Verlauf** picker (resume).
+- **Toolbar:** **Provider** `plan | act` (slot 2 = exec-capable model),
+  `ro | exec | console` radio (mirrors `exec_access`),
+  `propose | confirm | auto` select (mirrors `exec_mode`), **"Plan first"**
+  (checked by default — the AI presents a plan and waits for your go-ahead
+  before proposing actions), **Abort** (stops the agentic loop) and **New**
+  (fresh conversation).
 - **2:3 split:** the question field on top, the live transcript below.
 - **Quick questions** buttons fill and send a sample question.
 - **Agentic steps:** a proposed command arrives as an action card
-  (🔧) under the answer — in `confirm` mode with **Ausführen / Abbrechen**
-  buttons, in `auto` mode it runs immediately (Abbrechen stops the next
+  (🔧) under the answer — in `confirm` mode with **Execute / Abort**
+  buttons, in `auto` mode it runs immediately (Abort stops the next
   step). The command output (✅) is fed back to the AI, which continues.
 - Each answer has a **copy** button and a **sources** line (documentation
   files and/or research URLs).
+- **One chat history per member** — `New` starts fresh; the `history`
+  retention setting only controls when old turns are deleted.
 
 ### Floating popup
 
@@ -347,9 +363,9 @@ Browser ── tool_results (command output) ──▶ daemon /ask (continues)
 
 Execution never happens in the Go daemon — it is proposer only.
 
-### csweb-gui patches (Status-Ampel dot + popup injection + daemon autostart)
+### csweb-gui patches (Status-Ampel dot + popup injection + daemon autostart + i18n)
 
-Three UI/boot hooks touch core napp-it files and are applied on the napp-it
+Four UI/boot hooks touch core napp-it files and are applied on the napp-it
 side (they are **not** part of `install.pl`'s module file list):
 
 - **Status-Ampel AI dot** — `get_async.pl` (`_h_sys_ample`, last dot) and
@@ -359,6 +375,9 @@ side (they are **not** part of `install.pl`'s module file list):
 - **Daemon autostart** — `server_boot_tasks.pl` calls
   `ai_boot_autostart()` at every server.pl start (gate: `mode != off`,
   `autostart=on`, binary present).
+- **Localisation** — new language files `lang/{en,de,...}/ai_helpdesk.txt`
+  and `lang/{en,de,...}/help.txt` plus the two AI Helpdesk menu keys
+  (`m05.00`, `m12`) in `about_menus.txt`.
 
 These patches ship with the csweb-gui tree; applying the module itself only
 copies the files listed in `install.pl`.

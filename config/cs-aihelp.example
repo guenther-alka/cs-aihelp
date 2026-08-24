@@ -1,5 +1,5 @@
 # cs-aihelp configuration -- see data/howto.ai/ai-helpdesk.info
-# Written by csweb-gui System > Services > AI Helpdesk.
+# Written by csweb-gui AI Helpdesk menu (12_AI_Helpdesk).
 # DO NOT SHARE: api_key holds your cloud provider key when mode=provider.
 
 mode         = free
@@ -7,6 +7,13 @@ provider     = openai
 endpoint     = 
 model        = 
 api_key      = 
+mode2        = 
+provider2    = openai
+endpoint2    = 
+model2       = 
+api_key2     = 
+free_model2  = 
+free_model   = 
 exec_access  = ro
 exec_mode    = confirm
 exec_allow   = 
@@ -16,7 +23,6 @@ tool_use     = no
 max_context  = 8000
 history      = month
 history_turns = 10
-free_model   = 
 widget       = on
 widget_input_lines  = 1
 widget_answer_height = 220
