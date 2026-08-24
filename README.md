@@ -164,11 +164,22 @@ perl install.pl /opt/csweb-gui     # default target is /opt/csweb-gui
 | File | Install target |
 |---|---|
 | `data/wwwroot/cgi-bin/cs-aihelp.pl` | JSON CGI (chat backend) |
+| `data/wwwroot/cgi-bin/cs-aihelp-exec.pl` | exec CGI (Level 2) |
 | `data/menues/_lib/windows/aihelplib.pl` | shared library |
-| `data/menues/05_Help/00_AI_Helpdesk/action.pl` | chat menu |
-| `data/menues/12_AI_Helpdesk/action.pl` | settings menu |
+| `data/menues/_lib/windows/cstoolslib.pl` | CS tools registry + GitHub download |
+| `data/menues/05_Help/00_AI_Helpdesk/action.pl` | chat menu (first item in Help) |
+| `data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl` | settings menu |
+| `data/menues/10_System/03_CS_Tools/action.pl` | **System > CS Tools** download/update menu |
 | `data/howto.ai/ai-helpdesk.info` | module documentation |
 | `config/cs-aihelp.example` → `_cfg/cs-aihelp` | default config (only if absent) |
+
+**cs-aihelp is not bundled in napp-it cs.** The Go daemon binary is
+downloaded from GitHub via **System > CS Tools** ("download/update") — on
+first use the settings menu shows *"please download CS tools first"*. Only
+the binary for the **frontend OS** is fetched; it is installed keeping the
+**OS structure** (`data/cs_server/tools/cs-aihelp/<platform>.<arch>/`), so
+`csweb-gui/data` can be copied to another OS — there the matching binary is
+resolved (and fetched in CS Tools if missing).
 
 Alternatively, copy the files manually into the same paths. **No restart is
 needed** for the menus (napp-it cs scans menu folders per request); the config
@@ -194,7 +205,7 @@ file is read on every request.
 
 ## Configuration
 
-The module is configured in the **AI Helpdesk** menu (L1 `12_AI_Helpdesk`,
+The module is configured in **System > Services > AI Helpdesk** (
 previously System > Services) — saved to `_cfg/cs-aihelp`, a flat
 `key = value` file, auto-created on first run.
 

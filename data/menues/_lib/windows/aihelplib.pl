@@ -44,6 +44,11 @@ BEGIN {
 use HTTP::Tiny;
 use JSON::PP qw(encode_json decode_json);
 use URI::Escape qw(uri_escape_utf8 uri_unescape);
+use File::Copy qw(copy);
+use File::Path qw(make_path remove_tree);
+
+# central CS tools registry + GitHub download (System > CS Tools menu)
+{ (my $self = __FILE__) =~ s{/[^/]+$}{}; require "$self/cstoolslib.pl"; }
 
 use vars qw($wpath $dpath $tpath %in %txt);
 
@@ -286,6 +291,42 @@ sub ai_boot_autostart {
     my $out = `"$bin" start --config "$cfg" 2>&1`;
     $out = ai_trim($out // '');
     return $out;
+}
+
+# v1.1.0 -- GitHub distribution: cs-aihelp is NOT bundled in napp-it cs. The
+# Go daemon binary is downloaded from GitHub (see cstoolslib.pl / the
+# System > CS Tools menu) and installed KEEPING the OS structure:
+# data/cs_server/tools/cs-aihelp/<platform>.<arch>/cs-aihelp[.exe], so that
+# csweb-gui/data can be copied to another OS.
+sub ai_github_platform {
+    return cstools_platform();   # (platform, arch, ext)
+}
+
+# fetch https://api.github.com/repos/guenther-alka/cs-aihelp/releases/latest
+# -> (tag, { asset_name => browser_download_url }) or undef on error
+sub ai_github_latest {
+    return cstools_release('guenther-alka/cs-aihelp');
+}
+
+
+# download + install the newest daemon binary (and optionally the Perl module
+# files) from GitHub (delegates to the CS Tools registry). Returns (ok, msg).
+sub ai_download_github {
+    my ($dl_module) = @_;
+    return cstools_download('aihelp', $dl_module);
+}
+
+# daemon binary status: (present, version-string)
+sub ai_daemon_status {
+    my ($ok, $ver) = cstools_installed('aihelp');
+    return ($ok, $ver);
+}
+
+# daemon binary path for the current frontend OS (OS-structured install,
+# legacy flat installs fall back -- see cstoolslib)
+sub ai_daemon_bin {
+    my ($ok, $ver, $bin) = cstools_installed('aihelp');
+    return $bin;
 }
 
 # Level 2 -- system-prompt hint telling the model how to propose a command
@@ -929,7 +970,7 @@ function _aiAppend(log, html, cls){ var el=document.createElement('div'); el.cla
 function _aiTimer(el){ var t=0; el._t=setInterval(function(){ t++; el.innerHTML='<i>'+_aiT.answering+' ('+t+'s)</i>'; },1000); }
 function _aiErr(e){
   e=String(e||_aiT.error);
-  if(/deaktiviert|mode=off/i.test(e)) return _aiT.settings+' <a href="/cgi-bin/admin.pl?id='+_aiId+'&member='+_aiMember+'&l1=12">Settings</a>';
+  if(/deaktiviert|mode=off/i.test(e)) return _aiT.settings+' <a href="/cgi-bin/admin.pl?id='+_aiId+'&member='+_aiMember+'&l1=10&l2=05&l3=12">Settings</a>';
   if(/rate|429|too many|limit/i.test(e)) return _aiT.ratelimit;
   if(/http \d/.test(e)) return _aiT.proverr+' ('+e+')';
   if(/session|token|wrong ip|not allowed/i.test(e)) return _aiT.session;
@@ -1106,7 +1147,7 @@ sub ai_chat_page {
         print "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>"
             . ai_txt('ai_disabled_link', 'AI Helpdesk is disabled (mode=off). Enable it under ') 
             . "<a href=\"/cgi-bin/admin.pl?id=" . ai_esc($id) . "&amp;member=" . ai_esc($member || '')
-            . "&amp;l1=12\"><b>AI Helpdesk</b></a>.</div><br><br>\n";
+            . "&amp;l1=10&l2=05&l3=12\"><b>AI Helpdesk</b></a>.</div><br><br>\n";
         return;
     }
 

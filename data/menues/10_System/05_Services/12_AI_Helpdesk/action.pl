@@ -93,12 +93,29 @@ sub my_action {
     my $resolved = ai_resolve(%aicfg);
     my $ep_html  = $resolved ? "<span style='font-family:monospace;font-size:12px'>" . ai_esc($resolved->{endpoint} // '') . "</span>"
                             : '<i>no endpoint (off)</i>';
+
+    # daemon binary status (cs-aihelp is NOT bundled; downloaded via
+    # System > CS Tools -- the menu only points there).
+    my ($d_bin, $d_ver) = ai_daemon_status();
+    my $daemon_html;
+    if ($d_bin) {
+        $daemon_html = "<span style='color:darkgreen'><b>installed</b></span> " . ai_esc($d_ver);
+    } else {
+        my $cs_tools_link = "/cgi-bin/admin.pl?id=" . ai_esc($in{'id'}) . "&amp;member=" . ai_esc($member || '')
+            . "&amp;l1=10&amp;l2=03";
+        print "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>"
+            . "cs-aihelp daemon not installed -- please download CS tools first: "
+            . "<a href=\"$cs_tools_link\"><b>System &gt; CS Tools</b></a></div><br><br>\n";
+        $daemon_html = "<span style='color:#a00'><b>not installed</b></span> (see System &gt; CS Tools)";
+    }
+
     my $st_rows  = "<b>Mode</b>\t$mode_html\n"
                  . "<b>Endpoint</b>\t$ep_html\n"
                  . "<b>Model</b>\t" . ($resolved ? ai_esc($resolved->{model} // '') : '') . "\n"
+                 . "<b>Daemon</b>\t$daemon_html\n"
                  . "<b>Config</b>\t" . ai_esc(ai_cfg_path()) . "\n";
     print &list2table($st_rows, "160px,560px", "", "", "n");
-    print "<br>";
+    print "<br>\n";
 
     # --------------------------------------------------------------- form
     my $sel = sub {

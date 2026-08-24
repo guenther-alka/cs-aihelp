@@ -20,7 +20,8 @@ sub exe { }
 sub socket { }
 
 my @files = (
-  "$base/menues/12_AI_Helpdesk/action.pl",
+  "$base/menues/10_System/05_Services/12_AI_Helpdesk/action.pl",
+  "$base/menues/10_System/03_CS_Tools/action.pl",
   "$base/menues/05_Help/00_AI_Helpdesk/action.pl",
 );
 for my $f (@files) {

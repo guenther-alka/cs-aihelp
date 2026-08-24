@@ -18,8 +18,10 @@ my @files = (
   'data/wwwroot/cgi-bin/cs-aihelp.pl',
   'data/wwwroot/cgi-bin/cs-aihelp-exec.pl',
   'data/menues/_lib/windows/aihelplib.pl',
+  'data/menues/_lib/windows/cstoolslib.pl',
   'data/menues/05_Help/00_AI_Helpdesk/action.pl',
-  'data/menues/12_AI_Helpdesk/action.pl',
+  'data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl',
+  'data/menues/10_System/03_CS_Tools/action.pl',
   'data/howto.ai/ai-helpdesk.info',
 );
 

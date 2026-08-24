@@ -6,8 +6,10 @@ $dst = 'C:\opt\cs-aihelp-src\data'
 
 $module = @(
   'menues/_lib/windows/aihelplib.pl',
+  'menues/_lib/windows/cstoolslib.pl',
   'menues/05_Help/00_AI_Helpdesk/action.pl',
-  'menues/12_AI_Helpdesk/action.pl',
+  'menues/10_System/05_Services/12_AI_Helpdesk/action.pl',
+  'menues/10_System/03_CS_Tools/action.pl',
   'wwwroot/cgi-bin/cs-aihelp.pl',
   'wwwroot/cgi-bin/cs-aihelp-exec.pl',
   'howto.ai/ai-helpdesk.info'

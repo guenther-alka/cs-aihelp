@@ -1,5 +1,5 @@
 # cs-aihelp configuration -- see data/howto.ai/ai-helpdesk.info
-# Written by csweb-gui AI Helpdesk menu (12_AI_Helpdesk).
+# Written by csweb-gui AI Helpdesk menu (System > Services > AI Helpdesk).
 # DO NOT SHARE: api_key holds your cloud provider key when mode=provider.
 
 mode         = free
