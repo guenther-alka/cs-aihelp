@@ -6,9 +6,13 @@ grounded in the local documentation (`data/howto.ai/*.info`, light-RAG),
 optionally enriches the answer with a web search, and can be wired to a
 local or cloud LLM — with or without an API key.
 
-> **Version:** v0.5 · **License:** BSD 2-Clause · **Platform:** any OS that
-> runs napp-it cs (FreeBSD, illumos, Linux, macOS, Solaris, Windows) — pure
-> Perl, no compiled components, no external runtime dependencies.
+> **Version:** v1.0.0 · **License:** BSD 2-Clause · **Platform:** frontend on
+> any napp-it cs OS (FreeBSD, illumos, Linux, macOS, Solaris, Windows); the Go
+> daemon is built for 8 targets (mswin/linux/illumos/solaris/freebsd/darwin).
+> Local free AI (Ollama) runs natively on **Linux/macOS/Windows**; on
+> FreeBSD/illumos/Solaris use the Pollinations fallback, a remote Ollama
+> (`OLLAMA_BASE` / `provider=ollama` + endpoint) or an OpenAI-compatible
+> local server (e.g. llama.cpp).
 
 ---
 
@@ -298,12 +302,14 @@ tests/run_tests.sh
 powershell -ExecutionPolicy Bypass -File tests/run_tests.ps1
 ```
 
-The suite starts a local mock HTTP server (OpenAI-compatible chat, Ollama
+The Perl suite starts a local mock HTTP server (OpenAI-compatible chat, Ollama
 `/api/tags`+`/api/chat`, DuckDuckGo-Lite HTML, Google-CSE JSON) and runs
-**38 functional checks**: config read/write/roundtrip, provider resolve,
+**49 functional checks**: config read/write/roundtrip, provider resolve,
 RAG retrieval, history save/load/list/cleanup, provider call + error paths,
 free-tier Ollama path, DDG research parsing, external API research mapping,
-and the setup fallback. Requires `URI::Escape` on the test host.
+setup fallback, SSRF guard, and the `log` key. The Go daemon has its own
+unit tests (`go test ./...`) covering config, SSRF, RAG, providers (via
+httptest) and research mapping. Requires `URI::Escape` on the test host.
 
 ---
 
@@ -311,14 +317,16 @@ and the setup fallback. Requires `URI::Escape` on the test host.
 
 GitHub Actions builds the release on a `v*` tag:
 
-- `.github/workflows/ci.yml` — runs the test suite on every push / PR.
-- `.github/workflows/release.yml` — on `v0.5` etc.: syntax checks, tests,
-  packages `dist/cs-aihelp-<version>.tar.gz` (module files + tests + docs)
-  with `checksums.txt` and publishes a GitHub Release.
+- `.github/workflows/ci.yml` — Go `vet`+`test` and the Perl suite on every
+  push / PR.
+- `.github/workflows/release.yml` — builds the **Go daemon for 8 platforms**
+  (`cs-aihelp-<os>.<arch>.tar.gz`, `CGO_ENABLED=0`) plus the **module archive**
+  (`cs-aihelp-<version>.tar.gz`), writes `checksums.txt` and publishes the
+  GitHub Release.
 
 ```sh
-git tag v0.5
-git push origin v0.5
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 ---
