@@ -26,8 +26,9 @@ while (1) {
         }
     }
     my $resp;
-    my ($head) = split(/\r\n\r\n/, $req);
+    my ($head, $body) = split(/\r\n\r\n/, $req, 2);
     my ($reqline) = split(/\r\n/, $head);
+    my $wants_action = ($body // '') =~ /ACTIONTEST/ ? 1 : 0;
     if ($reqline =~ m{GET (\S+)}) {
         if ($1 =~ m{/api/tags}) {
             $resp = '{"models":[{"name":"mock-llm:latest"},{"name":"mock-llm2:latest"}]}';
@@ -44,7 +45,12 @@ while (1) {
             $resp = '{"choices":[{"message":{"content":"MOCK-ANTWORT aus dem Testserver"}}],"model":"mock"}';
         }
     } elsif ($reqline =~ m{/api/chat}) {
-        $resp = '{"message":{"content":"MOCK-OLLAMA-ANTWORT"},"model":"mock"}';
+        if ($wants_action) {
+            # Level 2: answer with a proposed command block
+            $resp = '{"message":{"content":"Ich mache einen Snapshot.\\n[[ACTION]]{\"cmd\":\"zfs snapshot tank/data@auto\",\"reason\":\"mock action test\"}[[/ACTION]]"},"model":"mock"}';
+        } else {
+            $resp = '{"message":{"content":"MOCK-OLLAMA-ANTWORT"},"model":"mock"}';
+        }
     } else {
         $resp = '{"choices":[{"message":{"content":"MOCK-ANTWORT aus dem Testserver"}}],"model":"mock"}';
     }

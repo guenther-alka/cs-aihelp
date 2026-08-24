@@ -1,5 +1,53 @@
 # Changelog
 
+## v1.0.2 (2026-08-24)
+
+**Level 2: exec + AI-Dialog (A3) + Status-Ampel AI dot.**
+
+- **`exec_access = ro|exec|console`** (default `ro`): the AI's command
+  scope. `ro` = read-only (no proposals, no execution). `exec` = proposals
+  only from the D2 allow list. `console` = optional remote-console mode
+  (only `exec_deny` applies).
+- **`exec_mode = propose|confirm|auto`** (default `confirm`): `propose` =
+  the AI may only show a command, never execute. `confirm` (recommended) =
+  every exec needs a click on "Ausführen" in the browser. `auto` = the
+  agentic loop runs without per-step confirmation.
+- **`exec_allow` / `exec_deny`**: comma-separated allow list of command
+  classes/prefixes (D2), pipe-separated deny list that ALWAYS wins
+  (default `zfs destroy|zpool destroy|rm -rf|dd |mkfs|format`). An empty
+  `exec_allow` means nothing may execute.
+- **Execution happens in a new session-gated Perl CGI
+  (`cgi-bin/cs-aihelp-exec.pl`)**, never in the Go daemon — the daemon is
+  the proposer only. The CGI validates allow/deny and runs the command
+  over the existing encrypted `&socket()`/`&exe()` channel.
+- **A3 agentic loop (browser-orchestrated):** the daemon/Perl layer accept
+  `tool_results`, extract a proposed `[[ACTION]]{...}[[/ACTION]]` block
+  from the answer, return it as `action`, and feed the executed command's
+  output back into the conversation — the AI can search pools, analyze
+  and fix bugs step by step.
+- **Full-screen AI Helpdesk (100% width/height):** toolbar (ro/exec/
+  console radio, propose/confirm/auto select, optional "Plan zuerst"
+  toggle, Abbrechen, Neu, Verlauf), 2:3 split — question on top, live
+  transcript below with per-step 🧠 answer → 🔧 action card → ✅ output.
+- **Popup:** read-only helper, freely draggable, size configurable via
+  `widget_input_lines` and `widget_answer_height`.
+- **Status-Ampel AI dot** (last dot, local read of `_cfg/cs-aihelp`):
+  grey = disabled, green = read-only, blue = exec (click shows
+  mode/exec_access/exec_mode/exec_allow).
+- **Daemon lifecycle** — `cs-aihelp serve` writes a PID file
+  (Unix `/var/run/cs-aihelp.pid`, Windows next to the config) and removes
+  it on shutdown; new `cs-aihelp start` subcommand (detached, idempotent —
+  skips when the listen port is already in use); `stop` is now
+  cross-platform (`taskkill /PID … /F` on Windows instead of SIGINT).
+- **`autostart = on|off`** (default `on`): `server_boot_tasks.pl` (server.pl
+  boot hook) starts the Go daemon automatically at every server start when
+  `mode != off` and the binary exists at
+  `data/cs_server/tools/cs-aihelp[.exe]`; `install.pl` copies the binary
+  there if it sits next to the installer.
+- Tests: Perl 82/82, Go vet + unit green; new Level-2 unit tests
+  (`exec_test.go`, Perl #24-29), `exec_e2e.ps1` and `lifecycle_smoke.ps1`
+  (start/status/stop end-to-end).
+
 ## v1.0.1 (2026-08-24)
 
 - **`ssrf_allow_private = no|yes`** (default `no`): allows RFC1918/private

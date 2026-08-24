@@ -4,16 +4,41 @@ use strict;
 use FindBin qw($RealBin);
 use vars qw($wpath $dpath $tpath %in);
 
-# repo layout: tests/ is a sibling of data/ and config/ -- the repo root
-# stands in for a csweb-gui installation
+# Portable paths: in the repo layout tests/ is a sibling of data/ (repo
+# root stands in for a csweb-gui installation, CI on Linux); on the dev
+# box the test also runs from C:\opt\testbase where data/howto.ai is
+# absent, so fall back to the real csweb-gui path there.
 (my $root = "$RealBin/..") =~ s{\\}{/}g;
-$wpath = $root;
-$dpath = "$root/data";
-$tpath = "$root/tmp";
+$wpath = (-d "$root/data/howto.ai") ? $root : 'C:/opt/csweb-gui';
+$dpath = "$wpath/data";
+$tpath = "$wpath/tmp";
 mkdir $tpath unless -d $tpath;
 %in = ( id => 'test', member => 'localhost~127.0.0.1' );
 
-require "$root/data/menues/_lib/windows/aihelplib.pl";
+my $ai_lib = (-d "$root/data/howto.ai")
+    ? "$root/data/menues/_lib/windows/aihelplib.pl"
+    : 'C:/opt/csweb-gui/data/menues/_lib/windows/aihelplib.pl';
+require $ai_lib;
+
+# guard: the test writes _cfg/cs-aihelp in place (ai_cfg_write). Back up the
+# original so a full run always leaves the real config untouched, even if a
+# mid-test assertion path would otherwise leave it dirty.
+my $cfg_path = ai_cfg_path();
+my $cfg_backup = undef;
+if (-f $cfg_path) {
+    open(my $bfh, '<', $cfg_path) or die "cannot read $cfg_path: $!";
+    local $/ = undef;
+    $cfg_backup = <$bfh>;
+    close $bfh;
+}
+END {
+    return unless defined $cfg_backup;
+    if (open(my $fh, '>', $cfg_path)) {
+        binmode $fh;
+        print $fh $cfg_backup;
+        close $fh;
+    }
+}
 
 my $pass = 0;
 my $fail = 0;
@@ -212,6 +237,89 @@ my %cfg_sec2 = ai_cfg_read();
 ok($cfg_sec2{ssrf_allow_private} eq 'yes' && $cfg_sec2{rate_limit} eq '30',
    'config: ssrf_allow_private/rate_limit roundtrip');
 ai_cfg_write(%cfg);
+
+# ---- 24. config roundtrip: level 2 keys + popup size ----
+my %cfg_l2 = ( %cfg, exec_access => 'exec', exec_mode => 'auto', exec_allow => 'zfs,find,curl',
+    exec_deny => 'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format',
+    widget_input_lines => '3', widget_answer_height => '350' );
+ai_cfg_write(%cfg_l2);
+my %cfg_l2r = ai_cfg_read();
+ok($cfg_l2r{exec_access} eq 'exec' && $cfg_l2r{exec_mode} eq 'auto', 'config: exec_access/exec_mode roundtrip');
+ok($cfg_l2r{exec_allow} eq 'zfs,find,curl' && $cfg_l2r{exec_deny} =~ /zpool destroy/,
+   'config: exec_allow/exec_deny roundtrip');
+ok($cfg_l2r{widget_input_lines} eq '3' && $cfg_l2r{widget_answer_height} eq '350',
+   'config: popup size keys roundtrip');
+my %cfg_as = ( %cfg, autostart => 'off' );
+ai_cfg_write(%cfg_as);
+my %cfg_asr = ai_cfg_read();
+ok($cfg_asr{autostart} eq 'off', 'config: autostart key roundtrip');
+ai_cfg_write(%cfg);
+
+# ---- 25. exec default state: ro + empty allow = no execution ----
+ai_cfg_write(%cfg);   # defaults: exec_access=ro, exec_allow=''
+ok(ai_exec_validate('zfs list') =~ /read-only/, 'exec: ro blocks any command');
+my %cfg_ro = ( %cfg, exec_access => 'exec' );
+ai_cfg_write(%cfg_ro);
+ok(ai_exec_validate('zfs list') =~ /exec_allow ist leer/, 'exec: exec + empty allow blocks all');
+ok(ai_exec_hint(%cfg) eq '', 'exec hint: ro -> empty');   # %cfg = defaults (exec_access=ro)
+
+# ---- 26. exec allow/deny (D2 classes) ----
+my %cfg_exec = ( %cfg, exec_access => 'exec', exec_allow => 'zfs,find,curl',
+    exec_deny => 'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format' );
+ai_cfg_write(%cfg_exec);
+ok(ai_exec_validate('zfs snapshot tank/data@auto') eq '', 'exec: zfs snapshot allowed');
+ok(ai_exec_validate('find /tank -name "*.log"') eq '', 'exec: find allowed');
+ok(ai_exec_validate('curl -s http://example.com') eq '', 'exec: curl allowed');
+ok(ai_exec_validate('rm -rf /tank/x') =~ /exec_deny/, 'exec: rm -rf blocked by deny');
+ok(ai_exec_validate('zfs destroy tank/data@old') =~ /exec_deny/, 'exec: zfs destroy blocked by deny');
+ok(ai_exec_validate('zpool destroy tank') =~ /exec_deny/, 'exec: zpool destroy blocked by deny');
+ok(ai_exec_validate('reboot') =~ /exec_allow/, 'exec: class not in allow -> blocked');
+ok(ai_exec_validate('zfs destroy tank') =~ /exec_deny/, 'exec: deny wins over allow');
+
+# ---- 27. exec console mode: allow bypass, deny still applies ----
+my %cfg_console = ( %cfg, exec_access => 'console', exec_allow => '' );
+ai_cfg_write(%cfg_console);
+ok(ai_exec_validate('ls -la /opt') eq '', 'console: arbitrary read-only command allowed');
+ok(ai_exec_validate('zpool destroy tank') =~ /exec_deny/, 'console: deny still applies');
+ok(ai_exec_hint(%cfg_console) =~ /\[\[ACTION\]\]/, 'exec hint: console -> ACTION block format');
+
+# ---- 28. ai_exec_allowed: combined gate (exec_mode server-side) ----
+my %cfg_exec2 = ( %cfg, exec_access => 'exec', exec_allow => 'zfs,find', exec_mode => 'confirm' );
+ai_cfg_write(%cfg_exec2);
+my ($aok1, $aerr1) = ai_exec_allowed('zfs snapshot tank/x@auto');
+ok($aok1 && $aerr1 eq '', 'exec_allowed: confirm + allow -> allowed');
+my %cfg_prop = ( %cfg, exec_access => 'exec', exec_allow => 'zfs,find', exec_mode => 'propose' );
+ai_cfg_write(%cfg_prop);
+my ($aok2, $aerr2) = ai_exec_allowed('zfs list');
+ok(!$aok2 && $aerr2 =~ /propose/, 'exec_allowed: propose -> blocked server-side');
+ai_cfg_write(%cfg);
+
+# ---- 29. ai_parse_action: extract/clean [[ACTION]] block ----
+my ($clean, $action) = ai_parse_action("Hier die Analyse.\n[[ACTION]]{\"cmd\":\"zfs snapshot tank/data\@auto\",\"reason\":\"test\"}[[/ACTION]]");
+ok(defined $action && $action->{cmd} eq 'zfs snapshot tank/data@auto', 'parse_action: cmd extracted');
+ok($clean eq 'Hier die Analyse.', 'parse_action: answer cleaned (got: ' . $clean . ')');
+my ($c2, $a2) = ai_parse_action('einfache antwort');
+ok(!defined $a2 && $c2 eq 'einfache antwort', 'parse_action: no block -> unchanged');
+my ($c3, $a3) = ai_parse_action("text [[ACTION]]not json[[/ACTION]] ende");
+ok(!defined $a3, 'parse_action: malformed block ignored');
+
+# ---- 29. exec hint via ai_ask with ACTION mock ----
+my %cfg_hint = ( %cfg, mode => 'provider', provider => 'openai',
+    endpoint => 'http://127.0.0.1:19091/chat', model => 'mock',
+    exec_access => 'exec', exec_allow => 'zfs', history => 'off' );
+ai_cfg_write(%cfg_hint);
+ok(ai_exec_hint(%cfg_hint) =~ /Allowed command classes: zfs/, 'exec hint: classes listed for exec');
+
+# ---- 30. ai_boot_autostart: skip gates (v1.0.3) ----
+ok(!defined ai_boot_autostart(mode => 'off'), 'boot_autostart: mode=off -> skip');
+ok(!defined ai_boot_autostart(mode => 'free', autostart => 'off'), 'boot_autostart: autostart=off -> skip');
+my $saved_wpath = $wpath;
+$wpath = 'C:/opt/testbase/ai_boot_fake';   # no binary under data/cs_server/tools
+ok(!defined ai_boot_autostart(mode => 'free', autostart => 'on'),
+   'boot_autostart: binary missing -> skip');
+$wpath = $saved_wpath;
+
+ai_cfg_write(%cfg);   # restore defaults
 
 print "\nRESULT: $pass passed, $fail failed\n";
 exit($fail ? 1 : 0);

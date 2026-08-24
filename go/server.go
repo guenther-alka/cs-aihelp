@@ -246,7 +246,7 @@ func (s *server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "answer": res.Answer, "sources": res.Sources,
-		"mode": res.Mode, "conv": res.Conv, "via": res.Via,
+		"mode": res.Mode, "conv": res.Conv, "via": res.Via, "action": res.Action,
 	})
 }
 

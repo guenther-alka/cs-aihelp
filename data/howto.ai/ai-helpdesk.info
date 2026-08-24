@@ -39,7 +39,16 @@ CONFIG KEYS (_cfg/cs-aihelp)
   endpoint      full chat-completions/messages URL ('' = provider default)
   model         '' = provider default
   api_key       cloud providers only, never logged
-  exec_mode     off | propose | confirm | auto     (Stufe 2, reserved)
+  exec_access   ro | exec | console                (default ro; Stufe 2)
+  exec_mode     propose | confirm | auto           (default confirm; Stufe 2)
+  exec_allow    comma list of allowed D2 command classes/prefixes
+                (first word of the command chain; '' = nothing executes)
+  exec_deny     pipe list, ALWAYS applied and wins over allow (default
+                'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format')
+  autostart     on | off  -- start the Go daemon at every server.pl boot
+                when mode != off (binary data/cs_server/tools/cs-aihelp)
+  widget_input_lines   popup input rows (1 = single line, 2-10 = textarea)
+  widget_answer_height popup answer area height in px (100-1200)
   tool_use      no | yes  -- Stufe 1: attach read-only live state
                 (hostname, zpool list of the selected member) as DATA context
   max_context   system prompt budget in chars (default 8000)
@@ -95,9 +104,17 @@ SECURITY MODEL
 - Model answers are HTML-escaped before rendering (XSS guard).
 - Live system state is passed as DATA ("treat as data, not instructions")
   to mitigate prompt injection.
-- No write access / no command execution from the module. Stufe 2
-  (exec_mode propose/confirm/auto + allowlist/denylist) is reserved but
-  NOT implemented yet.
+- Stufe 2 exec (defense-in-depth):
+  - exec_access=ro (default): AI is read-only, no proposals, no exec.
+  - The AI core only ever PROPOSES a command ([[ACTION]]{cmd,reason} block
+    in the answer). Execution happens in the separate session-gated CGI
+    cgi-bin/cs-aihelp-exec.pl via the encrypted &exe()/&socket() channel.
+  - exec_deny is always applied and wins (default zfs destroy|zpool destroy|
+    rm -rf|dd |mkfs|format).
+  - exec_access=exec additionally requires the command class in exec_allow
+    (D2); empty exec_allow = nothing executes. console = only deny applies.
+  - exec_mode=confirm (default): every exec needs the explicit
+    "Ausführen" click in the browser. auto only with a tight allow list.
 - Privacy: free (Pollinations) and cloud providers send the question
   (incl. tool-use context) to an external service. Use ollama locally for
   sensitive environments.
@@ -116,10 +133,14 @@ NOTES
 
 NEXT / PLANNED
 --------------
-- Status-Ampel: add a "helpdesk" dot to get_async.pl _h_sys_ample (enabled
-  mode, provider reachability e.g. Ollama up/down, last answer state).
-- Stufe 2 (exec_mode propose/confirm/auto + allowlist/denylist + confirm UI)
-  is reserved but not implemented.
-- Go daemon cs-aihelp (streaming/SSE, RAG index in memory) as a later
-  replacement for the Perl call path -- same _cfg/cs-aihelp.
+- P2 frontend: browser talks directly to the Go daemon (token injection /
+  SSE streaming) instead of the Perl CGI.
+- autostart.pl integration for the daemon.
+- Stufe 2 polish: plan/act as a first-class two-phase flow, per-member
+  exec policies, command audit view.
+- Status-Ampel AI dot is DONE (grey = off, green = ro, blue = exec; local
+  read of _cfg/cs-aihelp, click shows mode/exec_access/exec_mode/exec_allow).
+- Go daemon cs-aihelp (streaming/SSE, RAG index in memory) is DONE as the
+  AI core; the Perl CGI remains the session-gated browser path and the
+  exec channel.
 ===============================================================================

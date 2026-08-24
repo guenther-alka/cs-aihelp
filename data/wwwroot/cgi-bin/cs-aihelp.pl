@@ -116,7 +116,8 @@ my $member = $in{member} // 'localhost~127.0.0.1';
 &load_group_auth($member);
 
 my $question = $in{question} // '';
-if ($question =~ /^\s*$/) {
+my $has_tool = $in{tool_results} && ref $in{tool_results} eq 'ARRAY' && @{$in{tool_results}};
+if ($question =~ /^\s*$/ && !$has_tool) {
     print "Content-Type: application/json\r\n\r\n"
         . encode_json({ ok => 0, error => 'no question' }) . "\n";
     exit;
@@ -187,7 +188,7 @@ if ($conv && ref $conv->{messages} eq 'ARRAY') {
     }
 }
 
-my $r = ai_ask($question, $context, $live_state, \@hist_msgs);
+my $r = ai_ask($question, $context, $live_state, \@hist_msgs, $in{tool_results});
 
 my %resp;
 if (defined $r->{error}) {
@@ -203,7 +204,7 @@ if (defined $r->{error}) {
                       title => substr($question, 0, 60), messages => [] };
             $conv_id = ai_new_conv_id() unless $conv_id ne '';
         }
-        push @{$conv->{messages}}, { role => 'user',     ts => time(), text => $question };
+        push @{$conv->{messages}}, { role => 'user',     ts => time(), text => $question } if $question =~ /\S/;
         push @{$conv->{messages}}, { role => 'assistant', ts => time(), text => $r->{answer} };
         $conv->{updated} = time();
         ai_history_save($conv_id, $conv) if $conv_id ne '';
@@ -212,7 +213,7 @@ if (defined $r->{error}) {
 
     %resp = ( ok => 1, answer => $answer, sources => $r->{sources} // [],
               mode => $r->{mode} // '', conv => $conv_id,
-              via => $r->{via} // '' );
+              via => $r->{via} // '', action => $r->{action} // undef );
 }
 ai_log(sprintf("qlen=%d ok=%d member=%s conv=%s",
     length($question), $resp{ok}, $member, $conv_id));

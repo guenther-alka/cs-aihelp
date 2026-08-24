@@ -16,6 +16,7 @@ $target =~ s{/+$}{};
 
 my @files = (
   'data/wwwroot/cgi-bin/cs-aihelp.pl',
+  'data/wwwroot/cgi-bin/cs-aihelp-exec.pl',
   'data/menues/_lib/windows/aihelplib.pl',
   'data/menues/05_Help/50_AI_Helpdesk/action.pl',
   'data/menues/10_System/05_Services/70_AI_Helpdesk/action.pl',
@@ -30,6 +31,22 @@ for my $rel (@files) {
     make_path($dir) unless -d $dir;
     copy($src, $dst) or die "copy $src -> $dst failed: $!";
     print "  + $rel\n";
+}
+
+# daemon binary (best effort): if a cs-aihelp/cs-aihelp.exe binary sits
+# next to install.pl (e.g. downloaded platform tarball unpacked here),
+# place it at data/cs_server/tools/cs-aihelp -- that is where the
+# server.pl boot hook (server_boot_tasks.pl) looks for it.
+my $bin_src = ($^O =~ /MSWin/i) ? "$root/cs-aihelp.exe" : "$root/cs-aihelp";
+my $bin_dst = "$target/data/cs_server/tools/" . (($^O =~ /MSWin/i) ? 'cs-aihelp.exe' : 'cs-aihelp');
+if (-f $bin_src) {
+    make_path("$target/data/cs_server/tools") unless -d "$target/data/cs_server/tools";
+    copy($bin_src, $bin_dst) or die "copy daemon binary failed: $!";
+    chmod(0755, $bin_dst);
+    print "  + data/cs_server/tools/" . (($^O =~ /MSWin/i) ? 'cs-aihelp.exe' : 'cs-aihelp') . " (daemon)\n";
+} else {
+    print "  = no daemon binary found next to install.pl -- autostart will\n";
+    print "    be skipped until cs-aihelp is placed in data/cs_server/tools/\n";
 }
 
 my $cfg = "$target/_cfg/cs-aihelp";

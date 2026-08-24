@@ -35,13 +35,21 @@ sub my_action {
         $kv{endpoint}   = ai_trim($in{'cfg_endpoint'}  // '');
         $kv{model}      = ai_trim($in{'cfg_model'}     // '');
         $kv{api_key}    = ai_trim($in{'cfg_api_key'}   // '');
-        $kv{exec_mode}  = ai_trim($in{'cfg_exec_mode'} // 'off');
+        $kv{exec_mode}  = ai_trim($in{'cfg_exec_mode'} // 'confirm');
+        $kv{exec_access}= ai_trim($in{'cfg_exec_access'} // 'ro');
+        $kv{exec_allow} = ai_trim($in{'cfg_exec_allow'} // '');
+        $kv{exec_deny}  = ai_trim($in{'cfg_exec_deny'} // 'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format');
+        $kv{autostart}  = ai_trim($in{'cfg_autostart'} // 'on');
         $kv{tool_use}   = ai_trim($in{'cfg_tool_use'}  // 'no');
         $kv{history}    = ai_trim($in{'cfg_history'} // 'month');
         my $ht = ai_trim($in{'cfg_history_turns'} // '10');
         $kv{history_turns} = ($ht =~ /^\d+$/ && $ht > 0) ? $ht : '10';
         $kv{free_model} = ai_trim($in{'cfg_free_model'} // '');
         $kv{widget}     = ai_trim($in{'cfg_widget'} // 'on');
+        my $il = ai_trim($in{'cfg_widget_input_lines'} // '1');
+        $kv{widget_input_lines} = ($il =~ /^\d+$/ && $il >= 1 && $il <= 10) ? $il : '1';
+        my $ah = ai_trim($in{'cfg_widget_answer_height'} // '220');
+        $kv{widget_answer_height} = ($ah =~ /^\d+$/ && $ah >= 100 && $ah <= 1200) ? $ah : '220';
         $kv{research}   = ai_trim($in{'cfg_research'} // 'ddg');
         my $rm = ai_trim($in{'cfg_research_max'} // '5');
         $kv{research_max} = ($rm =~ /^\d+$/ && $rm > 0) ? $rm : '5';
@@ -143,8 +151,18 @@ sub my_action {
                   : "bei mode=free nicht noetig; bei Cloud-Providern hier eintragen") . "\n";
     $rows .= "<b>Tool-Use (Stufe 1)</b>\t" . $sel->('cfg_tool_use', $aicfg{tool_use} // 'no', qw(no yes))
         . $desc->("yes = KI bekommt read-only Systemzustand (hostname, zpool list) des gewaehlten Members als Kontext") . "\n";
-    $rows .= "<b>Exec-Modus (Stufe 2)</b>\t" . $sel->('cfg_exec_mode', $aicfg{exec_mode} // 'off', qw(off propose confirm auto))
-        . $desc->("reserviert: off = keine Aktionen | propose = nur Vorschlaege | confirm = Ausfuehrung nach Bestaetigung | auto = ohne Bestaetigung (nur mit Allowlist)") . "\n";
+    $rows .= "<b>Exec-Zugriff (Stufe 2)</b>\t" . $sel->('cfg_exec_access', $aicfg{exec_access} // 'ro', qw(ro exec console))
+        . $desc->("<b>ro</b> (Default) = read-only, keine Befehlsausfuehrung, keine Vorschlaege | <b>exec</b> = AI darf Befehle vorschlagen, Ausfuehrung nur aus exec_allow (D2-Klassen) | <b>console</b> = optionaler Remote-Console-Modus (Befehle unterliegen nur exec_deny) -- immer mit exec_mode confirm oder auto") . "\n";
+    $rows .= "<b>Exec-Modus (Stufe 2)</b>\t" . $sel->('cfg_exec_mode', $aicfg{exec_mode} // 'confirm', qw(propose confirm auto))
+        . $desc->("<b>propose</b> = nur Vorschlag im Chat, keine Ausfuehrung | <b>confirm</b> (Empfohlen) = jeder Befehl wird vor Ausfuehrung bestaetigt | <b>auto</b> = Ausfuehrung ohne Einzelbestaetigung (nur fuer vertrauenswuerdige Umgebungen mit enger Allowlist)") . "\n";
+    $rows .= "<b>Exec-Allow (D2)</b>\t<input type='text' name='cfg_exec_allow' value=\"" . ai_esc($aicfg{exec_allow} // '')
+        . "\" style='width:340px' placeholder='z. B. zfs,zpool,find,curl,ls,grep'>"
+        . $desc->("kommagetrennte Liste erlaubter Befehlsklassen/-prefixe (erste Wort der Befehlskette); leeres Feld = <b>keine</b> Ausfuehrung. Beispiele: <code>zfs</code>, <code>zfs snapshot</code>, <code>find</code>, <code>curl</code>") . "\n";
+    $rows .= "<b>Exec-Deny (immer)</b>\t<input type='text' name='cfg_exec_deny' value=\"" . ai_esc($aicfg{exec_deny} // 'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format')
+        . "\" style='width:340px'>"
+        . $desc->("wird <b>immer</b> angewendet und gewinnt gegen exec_allow; '|'-getrennte Teilstrings, z. B. <code>zfs destroy|zpool destroy|rm -rf|dd |mkfs|format</code>") . "\n";
+    $rows .= "<b>Daemon-Autostart</b>\t" . $sel->('cfg_autostart', $aicfg{autostart} // 'on', qw(on off))
+        . $desc->("on = startet den Go-Daemon automatisch beim Start von server.pl (data/cs_server/tools/cs-aihelp muss vorhanden sein, mode != off); idempotent via 'cs-aihelp start' | off = kein Autostart") . "\n";
     $rows .= "<b>Verlauf (History)</b>\t" . $sel->('cfg_history', $aicfg{history} // 'month', qw(off today week month 6months all))
         . $desc->("Chatverlauf wird in _cfg/aihelp/conv_*.json gespeichert; Aufbewahrung: off = kein Verlauf | today = 24h | week = 7 Tage | month = 30 Tage | 6months = 180 Tage | all = unbegrenzt") . "\n";
     $rows .= "<b>Verlauf-Kontext</b>\t<input type='text' name='cfg_history_turns' value=\"" . ai_esc($aicfg{history_turns} // '10')
@@ -152,6 +170,12 @@ sub my_action {
         . $desc->("wie viele fruehere Runden beim Fortsetzen als Kontext mitgesendet werden") . "\n";
     $rows .= "<b>Widget (Popup)</b>\t" . $sel->('cfg_widget', $aicfg{widget} // 'on', qw(on off))
         . $desc->("on = schwebendes 'KI fragen'-Popup erscheint auf jeder eingeloggten Seite (im Hintergrund geladen) | off = nur im Chat-Menue") . "\n";
+    $rows .= "<b>Popup: Eingabezeilen</b>\t<input type='text' name='cfg_widget_input_lines' value=\"" . ai_esc($aicfg{widget_input_lines} // '1')
+        . "\" style='width:80px'>"
+        . $desc->("1 = einzeiliges Eingabefeld | 2-10 = mehrzeiliges Textfeld im Popup") . "\n";
+    $rows .= "<b>Popup: Antwort-Hoehe (px)</b>\t<input type='text' name='cfg_widget_answer_height' value=\"" . ai_esc($aicfg{widget_answer_height} // '220')
+        . "\" style='width:80px'>"
+        . $desc->("Hoehe des Antwortbereichs im Popup in px (100-1200)") . "\n";
     $rows .= "<b>Recherche (Web)</b>\t" . $sel->('cfg_research', $aicfg{research} // 'ddg', qw(off ddg api))
         . $desc->("off = nur lokale Doku | <b>ddg</b> (Default) = DuckDuckGo Lite, kostenlos/kein Key, direkter Zugang | <b>api</b> = beliebiger externer Suchdienst ueber Endpoint (+ optional Key)") . "\n";
     $rows .= "<b>Recherche-Treffer</b>\t<input type='text' name='cfg_research_max' value=\"" . ai_esc($aicfg{research_max} // '5')

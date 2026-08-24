@@ -4,6 +4,7 @@ package main
 //
 // Usage:
 //   cs-aihelp serve   [--listen ADDR] [--config PATH] [--foreground]
+//   cs-aihelp start   [--config PATH]   (detached + idempotent)
 //   cs-aihelp ask     --question "..."
 //   cs-aihelp status  [--config PATH] [--json]
 //   cs-aihelp stop    [--config PATH]
@@ -16,7 +17,7 @@ import (
 	"strings"
 )
 
-var version = "1.0.1"
+var version = "1.0.2"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -28,6 +29,8 @@ func main() {
 		fmt.Println("cs-aihelp " + version)
 	case "serve":
 		serveCmd(os.Args[2:])
+	case "start":
+		startCmd(os.Args[2:])
 	case "ask":
 		askCmd(os.Args[2:])
 	case "status":
@@ -50,9 +53,10 @@ func usage() {
 
 Usage:
   cs-aihelp serve   [--listen ADDR] [--config PATH] [--foreground]
+  cs-aihelp start   [--config PATH]   (detached + idempotent; for boot hooks)
   cs-aihelp ask     --question "..." [--config PATH] [--json]
   cs-aihelp status  [--config PATH] [--json]
-  cs-aihelp stop    [--config PATH]
+  cs-aihelp stop    [--config PATH]   (reads the daemon PID file)
   cs-aihelp reindex [--config PATH]
   cs-aihelp version
 

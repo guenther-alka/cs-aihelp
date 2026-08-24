@@ -37,12 +37,21 @@ type Config struct {
 
 	// ui
 	Widget   bool
-	ExecMode string
 	Log      bool
 
 	// security
 	SSRFAllowPrivate bool // yes = allow RFC1918/private endpoints (LAN-only)
 	RateLimit        int  // max requests/min per client IP in the daemon (0 = off)
+
+	// level 2 / exec
+	ExecAccess string   // ro | exec | console
+	ExecMode   string   // propose | confirm | auto (used when ExecAccess != ro)
+	ExecAllow  []string // D2 command classes/prefixes; empty = nothing allowed
+	ExecDeny   []string // always applied, wins
+
+	// ui / popup
+	WidgetInputLines  int
+	WidgetAnswerHeight int
 
 	// daemon / network
 	Listen     string // 127.0.0.1:45555 (default) | 0.0.0.0:45555
@@ -63,6 +72,8 @@ func DefaultConfig() *Config {
 		History: "month", HistoryTurns: 10,
 		Widget: true, Log: true,
 		SSRFAllowPrivate: false, RateLimit: 60,
+		ExecAccess: "ro", ExecMode: "confirm",
+		WidgetInputLines: 1, WidgetAnswerHeight: 220,
 		Listen:  "127.0.0.1:45555",
 		TLSCert: "/opt/csweb-gui/_cfg/webserver/cert/server.crt",
 		TLSKey:  "/opt/csweb-gui/_cfg/webserver/cert/server.key",
@@ -74,6 +85,18 @@ func defaultConfigPath() string {
 		return p
 	}
 	return "/opt/csweb-gui/_cfg/cs-aihelp"
+}
+
+// splitList splits on sep, trims and drops empties.
+func splitList(s, sep string) []string {
+	var out []string
+	for _, p := range strings.Split(s, sep) {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -135,14 +158,24 @@ func LoadConfig(path string) (*Config, error) {
 			fmt.Sscanf(v, "%d", &cfg.HistoryTurns)
 		case "widget":
 			cfg.Widget = v == "on" || v == "yes"
-		case "exec_mode":
-			cfg.ExecMode = v
 		case "log":
 			cfg.Log = v != "off"
 		case "ssrf_allow_private":
 			cfg.SSRFAllowPrivate = v == "yes" || v == "on"
 		case "rate_limit":
 			fmt.Sscanf(v, "%d", &cfg.RateLimit)
+		case "exec_access":
+			cfg.ExecAccess = v
+		case "exec_mode":
+			cfg.ExecMode = v
+		case "exec_allow":
+			cfg.ExecAllow = splitList(v, ",")
+		case "exec_deny":
+			cfg.ExecDeny = splitList(v, "|")
+		case "widget_input_lines":
+			fmt.Sscanf(v, "%d", &cfg.WidgetInputLines)
+		case "widget_answer_height":
+			fmt.Sscanf(v, "%d", &cfg.WidgetAnswerHeight)
 		case "listen":
 			cfg.Listen = v
 		case "allowed_ip":
@@ -214,6 +247,11 @@ func (c *Config) Save() error {
 	fw("log", yn(c.Log))
 	fw("ssrf_allow_private", yn(c.SSRFAllowPrivate))
 	fw("rate_limit", fmt.Sprintf("%d", c.RateLimit))
+	fw("exec_access", c.ExecAccess)
+	fw("exec_allow", strings.Join(c.ExecAllow, ","))
+	fw("exec_deny", strings.Join(c.ExecDeny, "|"))
+	fw("widget_input_lines", fmt.Sprintf("%d", c.WidgetInputLines))
+	fw("widget_answer_height", fmt.Sprintf("%d", c.WidgetAnswerHeight))
 	fw("listen", c.Listen)
 	fw("allowed_ip", c.AllowedIP)
 	fw("auth_token", c.AuthToken)
