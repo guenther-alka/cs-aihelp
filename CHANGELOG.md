@@ -22,14 +22,20 @@
 - **Popup:** "Ask AI" (read-only), English labels, small Provider selector.
 - **KISS history:** one chat history per member — the picker/`_aiLoadConv`
   is gone; `New` clears, `history` retention only deletes old turns.
-- **Distribution via System > CS Tools:** cs-aihelp (and cs-sleeper) are
-  **not bundled** in napp-it cs — the new `10_System/03_CS_Tools` menu
+- **Distribution via System > CS Tools:** all cs tools (cs-aihelp,
+  cs-sleeper, cs-sync, cs-send, cs-stream, cs-freeze4snap) are **not
+  bundled** in napp-it cs — the `10_System/03_CS_Tools` menu
   (`cstoolslib.pl` registry) lists tool / current version / newest version
-  with a **download/update** link; only the **frontend-OS** binary is
-  fetched and installed keeping the **OS structure**
-  (`data/cs_server/tools/<tool>/<platform>.<arch>/`), so `csweb-gui/data`
-  can be copied to another OS. The AI Helpdesk settings now show
-  *"please download CS tools first"* when the daemon is missing.
+  in a **100% width table** with a **download/update** link. Only the
+  **frontend-OS** binary is fetched (tar archives `.tar.gz` and raw
+  binaries are both supported) and installed keeping the **OS structure**
+  (`data/cs_server/tools/<tool>/<platform>.<arch>/`), so
+  `csweb-gui/data` can be copied to another OS. Newest versions are
+  **cached for 1 h** (`_cfg/cstools_versions`, avoids GitHub rate limits).
+  A second table manages the **local AI Helpdesk**: installed version,
+  running/stopped, [Settings] link, **Start/Stop** and **Update**.
+  The AI Helpdesk settings show *"please download CS tools first"* when
+  the daemon is missing. v1.1rc was released as a **pre-release**.
 - Tests: Perl 86/86, Go vet + unit green (slot tests in Perl #4b and
   `go/lifecycle_test.go`).
 
