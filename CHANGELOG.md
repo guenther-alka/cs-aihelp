@@ -18,6 +18,18 @@
   conversation of the member (Resume button).
 - **help.txt**: JS strings + quick questions now in all 7 languages; key set
   aligned (21 consumed keys) in every language.
+- **P2 (DONE)**: `cs-aihelp.pl` is now a session-gated proxy to the Go daemon
+  (`/ask` over loopback, HTTPS webserver cert, Bearer `auth_token`). RAG,
+  provider call (Ollama/OpenAI), web research, history and action parsing run
+  in Go. **SSE token streaming** end-to-end: the daemon streams tokens
+  (`data:{"t":...}` + `event: done`), the proxy passes them through over a raw
+  socket (de-chunked, TLS via IO::Socket::SSL with system fallback), the JS
+  renders them progressively. New daemon endpoint **`/resume`** (newest
+  conversation of the member, Go-side). `Enter` inserts a newline, sending
+  happens only via `Ask`.
+- **Config**: daemon network keys (`listen`, `auth_token`, `allowed_ip`,
+  `cors_origin`, `tls_cert`, `tls_key`) are now preserved by the Settings save
+  (fixes a data-loss bug) and forwarded by the proxy.
 - **Menu rename**: `System > CS Tools` -> **`System > CS Tools Download`**
   (m10.03, en+de; other languages use the English fallback). The page now
   offers a **local AI (Ollama)** section: status, platform download link

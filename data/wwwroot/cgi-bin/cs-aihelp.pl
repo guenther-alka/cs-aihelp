@@ -1,24 +1,24 @@
 #!/opt/perl/bin/perl.exe
 # =============================================================================
-# cs-aihelp.pl  --  AI Helpdesk JSON CGI for csweb-gui
+# cs-aihelp.pl  --  AI Helpdesk session-gated PROXY to the Go daemon
+#
+# P2: the browser JS talks to this CGI (session check), which forwards the
+# question to the Go daemon (/ask) over loopback. The daemon does RAG,
+# provider call (Ollama/OpenAI), token streaming (SSE) and history. The
+# exec channel stays in cs-aihelp-exec.pl (session-gated Perl).
 #
 # Called directly by browser JS via POST JSON.
 # Auth: session (id=user,REF,token) via socketlib check_session -- the same
 #       check as modifier.pl / get_async.pl.
 #
-# Request JSON:  { id, member, l1, l2, l3, question }
-#   id         = session id "user,ref,token"
-#   member     = selected backend member "hostname~ip"
-#   l1/l2/l3   = current menu path (context-sensitive help)
-#   question   = the user's question
-#
-# Response JSON: { ok, answer, sources, mode }  or  { ok:0, error }
-#   answer is HTML-escaped on the server (XSS guard, see security model in
-#   data/howto.ai/ai-helpdesk.info).
-#
+# Request JSON:  { id, member, l1, l2, l3, question, conv, provider_use,
+#                  tool_results, stream }
+# Response:  buffered  -> JSON { ok, answer, sources, mode, conv, via,
+#                               action, provider_use }
+#            stream    -> SSE: data:{"t":"<token>"} ... event:done
 # Stufe 1 (read-only diagnostics): when tool_use=yes in _cfg/cs-aihelp, the
 # CGI collects a small read-only live state (hostname, zpool list) via the
-# existing socketlib &socket() channel and hands it to ai_ask() as DATA.
+# existing socketlib &socket() channel and hands it to the daemon as DATA.
 # Nothing is ever executed on a member -- only status/read commands.
 # =============================================================================
 
@@ -31,9 +31,14 @@ use vars qw($tf $wpath $tpath $dpath %cfg %in %current %sys %zfs %disk $t $debug
 # it to @INC globally, but the standalone CGI must be self-sufficient too
 use lib "/opt/csweb-gui/data/cs_server/CGI";
 
-my $ver = "26.08.24_15:00";
+my $ver = "26.08.24_16:30";
 
 # -- Changelog
+# 2026.08.24_16:30  P2: session-gated proxy to the Go daemon
+#   B  /ask forwarded to the Go daemon over loopback (RAG, provider, Ollama,
+#      history in Go); SSE token streaming passthrough (stream:true via raw
+#      socket, de-chunked); action=resume forwarded to the daemon /resume;
+#      action=load stays local (shared history files).
 # 2026.08.24_15:00  AI Helpdesk UI + i18n (settings/help/popup)
 #   B  action=load/resume moved before the question guard (load was
 #      unreachable), new action=resume returns the newest saved
@@ -133,22 +138,15 @@ if (($in{action} // '') eq 'load') {
     exit;
 }
 if (($in{action} // '') eq 'resume') {
-    # newest saved conversation of this member (history files carry member)
-    my @list = ai_history_list();
-    my ($found_id, $found);
-    for my $e (@list) {
-        my $c = ai_history_load($e->{id});
-        next unless $c && (($c->{member} // '') eq $member);
-        $found_id = $e->{id}; $found = $c; last;
-    }
-    if (!$found) {
+    # P2: forward to the Go daemon /resume (newest conversation of member)
+    my $path = "/resume?member=" . uri_escape_utf8($member);
+    my $resp = ai_daemon_call($path, '{}', 0);
+    if ($resp eq '') {
         print "Content-Type: application/json\r\n\r\n"
-            . encode_json({ ok => 0, error => 'no saved conversation' }) . "\n";
+            . encode_json({ ok => 0, error => 'cs-aihelp daemon not running -- start it under System > Services > AI Helpdesk' }) . "\n";
         exit;
     }
-    my @msgs = map { { role => $_->{role}, text => $_->{text} } } @{$found->{messages} // []};
-    print "Content-Type: application/json\r\n\r\n"
-        . encode_json({ ok => 1, conv => $found_id, title => $found->{title} // '', messages => \@msgs }) . "\n";
+    print "Content-Type: application/json\r\n\r\n" . $resp . "\n";
     exit;
 }
 
@@ -189,59 +187,50 @@ if (($in{l1} // '') ne '') {
     $context .= " (member " . $member . ")";
 }
 
-# ---- chat history context (resume) -------------------------------------
-my $conv_id = ai_trim($in{conv} // '');
-$conv_id =~ s/[^A-Za-z0-9_.-]//g;
-my $conv   = $conv_id ne '' ? ai_history_load($conv_id) : undef;
-my $hist_turns = 10;
-my $ht = ai_trim($aicfg{history_turns} // '');
-$hist_turns = $ht if $ht =~ /^\d+$/ && $ht > 0;
+# ---- P2: forward to the Go daemon /ask --------------------------------
+my $provider_use = ($in{provider_use} // 'plan') eq 'act' ? 'act' : 'plan';
+my $stream = (($in{stream} // 0) eq '1' || $in{stream} eq 'true') ? 1 : 0;
+my $dbody = encode_json({
+    question     => $question,
+    conv         => ai_trim($in{conv} // ''),
+    provider_use => $provider_use,
+    context      => $context,
+    live_state   => $live_state,
+    tool_results => ($has_tool ? $in{tool_results} : []),
+    stream       => $stream ? \1 : \0,
+});
 
-my @hist_msgs;
-if ($conv && ref $conv->{messages} eq 'ARRAY') {
-    my @all = map { { role => $_->{role}, content => $_->{text} } } @{$conv->{messages}};
-    if (@all > $hist_turns) { splice(@all, 0, @all - $hist_turns); }
-    # merge consecutive user turns (Anthropic wants strict user/assistant alternation)
-    for my $m (@all) {
-        if (@hist_msgs && $hist_msgs[-1]{role} eq 'user' && $m->{role} eq 'user') {
-            $hist_msgs[-1]{content} .= "\n" . $m->{content};
-        } else {
-            push @hist_msgs, $m;
-        }
+if ($stream) {
+    # SSE token streaming passthrough (raw socket -> STDOUT, de-chunked)
+    print "Content-Type: text/event-stream\r\n\r\n";
+    my $ok = ai_daemon_call("/ask?member=" . uri_escape_utf8($member), $dbody, 1);
+    if (!$ok) {
+        print "data: " . encode_json({ error =>
+            'cs-aihelp daemon not running -- start it under System > Services > AI Helpdesk' }) . "\n\n";
     }
+    exit;
 }
 
-my $provider_use = ($in{provider_use} // 'plan') eq 'act' ? 'act' : 'plan';
-my $r = ai_ask($question, $context, $live_state, \@hist_msgs, $in{tool_results}, $provider_use);
-
-my %resp;
-if (defined $r->{error}) {
-    %resp = ( ok => 0, error => $r->{error} );
-} else {
-    # XSS guard: HTML-escape the model answer before it reaches innerHTML
-    my $answer = ai_esc($r->{answer} // '');
-
-    # persist the conversation (create new one if none)
-    if ($aicfg{history} ne 'off') {
-        unless ($conv) {
-            $conv = { created => time(), member => $member,
-                      title => substr($question, 0, 60), messages => [] };
-            $conv_id = ai_new_conv_id() unless $conv_id ne '';
-        }
-        push @{$conv->{messages}}, { role => 'user',     ts => time(), text => $question } if $question =~ /\S/;
-        push @{$conv->{messages}}, { role => 'assistant', ts => time(), text => $r->{answer} };
-        $conv->{updated} = time();
-        ai_history_save($conv_id, $conv) if $conv_id ne '';
-        ai_history_cleanup(ai_trim($aicfg{history} // 'month'));
-    }
-
-    %resp = ( ok => 1, answer => $answer, sources => $r->{sources} // [],
-              mode => $r->{mode} // '', conv => $conv_id,
-              via => $r->{via} // '', action => $r->{action} // undef,
-              provider_use => $r->{provider_use} // 'plan' );
+my $resp = ai_daemon_call("/ask?member=" . uri_escape_utf8($member), $dbody, 0);
+if ($resp eq '') {
+    print "Content-Type: application/json\r\n\r\n"
+        . encode_json({ ok => 0, error =>
+            'cs-aihelp daemon not running -- start it under System > Services > AI Helpdesk' }) . "\n";
+    exit;
+}
+my $data;
+eval { $data = decode_json($resp) };
+if (!$data || ref $data ne 'HASH') {
+    print "Content-Type: application/json\r\n\r\n"
+        . encode_json({ ok => 0, error => 'invalid daemon response' }) . "\n";
+    exit;
+}
+# XSS guard on the buffered answer (streaming tokens use textContent)
+if ($data->{ok} && defined $data->{answer}) {
+    $data->{answer} = ai_esc($data->{answer});
 }
 ai_log(sprintf("qlen=%d ok=%d member=%s conv=%s",
-    length($question), $resp{ok}, $member, $conv_id));
+    length($question), $data->{ok} // 0, $member, $data->{conv} // ''));
 
-print "Content-Type: application/json\r\n\r\n" . encode_json(\%resp) . "\n";
+print "Content-Type: application/json\r\n\r\n" . encode_json($data) . "\n";
 exit;

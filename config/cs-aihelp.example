@@ -34,3 +34,11 @@ fallback     = free
 log          = on
 ssrf_allow_private = no
 rate_limit   = 60
+
+# Go daemon network (loopback; forwarded by the Perl CGI proxy)
+listen       = 127.0.0.1:45555
+auth_token   =
+allowed_ip   =
+cors_origin  =
+tls_cert     = /opt/csweb-gui/_cfg/webserver/cert/server.crt
+tls_key      = /opt/csweb-gui/_cfg/webserver/cert/server.key

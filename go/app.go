@@ -110,7 +110,17 @@ func execHintFor(cfg *Config) string {
 	}
 }
 
+// Ask answers a question (buffered path; also used by the CLI/status).
 func (a *App) Ask(req AskRequest, member string) (AskResult, error) {
+	return a.askInternal(req, member, nil)
+}
+
+// askStream answers and token-streams the reply via emit (SSE).
+func (a *App) askStream(req AskRequest, member string, emit tokenEmitter) (AskResult, error) {
+	return a.askInternal(req, member, emit)
+}
+
+func (a *App) askInternal(req AskRequest, member string, emit tokenEmitter) (AskResult, error) {
 	cfg := applyProviderSlot(a.Config(), req.ProviderUse)
 	if cfg.Mode == "off" {
 		return AskResult{}, ErrDisabled
@@ -201,13 +211,13 @@ func (a *App) Ask(req AskRequest, member string) (AskResult, error) {
 	}
 
 	// provider call + setup fallback
-	answer, err := callProvider(cfg, system, msgs)
+	answer, err := providerAnswer(cfg, system, msgs, emit)
 	via := ""
 	if err != nil && cfg.Mode == "provider" && cfg.Fallback == "free" {
 		freeCfg := *cfg
 		freeCfg.Mode = "free"
-		if a2, e2 := callProvider(&freeCfg, system, msgs); e2 == nil {
-			answer, err, via = a2, nil, "free (Fallback)"
+		if a2, e2 := providerAnswer(&freeCfg, system, msgs, emit); e2 == nil {
+			answer, via, err = a2, "free (Fallback)", nil
 		}
 	}
 	if err != nil {

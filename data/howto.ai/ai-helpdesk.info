@@ -121,13 +121,24 @@ COMMUNICATION / UX
   draggable, [x] closes it, provider select mode1|mode2 before Ask/New,
   read-only (no exec); sends the current menu path (l1/l2/l3) + member as
   context (context-sensitive help).
-- Request  (browser -> cs-aihelp.pl):
-  { id, member, l1, l2, l3, question, conv, provider_use (plan|act = slot 1|2) }
-- Response: { ok, answer (HTML-escaped server-side), sources, mode, conv,
-  provider_use, action }
-- action=load  with conv       -> returns the stored conversation.
-- action=resume (no question)  -> returns the NEWEST saved conversation of
-  the member (used by the Resume button).
+- P2 architecture (DONE): browser JS talks to cs-aihelp.pl (session check +
+  read-only live_state + menu context), which PROXIES to the Go daemon over
+  loopback (HTTPS, webserver cert). The daemon does RAG (in-memory index),
+  provider call (Ollama/OpenAI), web research, token streaming (SSE) and
+  history persistence. The exec channel stays in cs-aihelp-exec.pl
+  (session-gated Perl CGI).
+- Request  (browser -> cs-aihelp.pl -> Go daemon /ask):
+  { id, member, l1, l2, l3, question, conv, provider_use (plan|act = slot 1|2),
+    tool_results, stream }
+- Response buffered: { ok, answer (HTML-escaped server-side), sources, mode,
+  conv, provider_use, action }
+- Response stream (stream:true): SSE token events
+  `data: {"t":"<token>"}` ... then `event: done` with
+  { conv, sources, via, action, provider_use, mode }.
+- action=resume (no question) -> proxied to the Go daemon /resume, returns
+  the NEWEST saved conversation of the member (used by the Resume button).
+- Daemon must be running: start/stop under System > Services > AI Helpdesk
+  (autostart at boot). If it is down, the CGI returns a clear error.
 - i18n: simple field labels stay English (Basisregel); explanatory texts and
   confirm messages are translated via the napp-it lang files (system.txt for
   the settings menu, help.txt for the help page) in all 7 languages
@@ -177,8 +188,8 @@ NOTES
 
 NEXT / PLANNED
 --------------
-- P2 frontend: browser talks directly to the Go daemon (token injection /
-  SSE streaming) instead of the Perl CGI.
+- P2 frontend (DONE): the browser talks to the Go daemon via the session-gated
+  cs-aihelp.pl proxy, with SSE token streaming; RAG/provider/history run in Go.
 - autostart.pl integration for the daemon.
 - Stufe 2 polish (DONE): per-question provider (mode1/mode2) + mode
   (plan/act) as a first-class two-phase flow.

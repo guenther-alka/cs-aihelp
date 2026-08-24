@@ -170,7 +170,7 @@ perl install.pl /opt/csweb-gui     # default target is /opt/csweb-gui
 
 | File | Install target |
 |---|---|
-| `data/wwwroot/cgi-bin/cs-aihelp.pl` | JSON CGI (chat backend) |
+| `data/wwwroot/cgi-bin/cs-aihelp.pl` | session-gated proxy → Go daemon (chat, SSE) |
 | `data/wwwroot/cgi-bin/cs-aihelp-exec.pl` | exec CGI (Level 2) |
 | `data/menues/_lib/windows/aihelplib.pl` | shared library |
 | `data/menues/_lib/windows/cstoolslib.pl` | CS tools registry + GitHub download |
@@ -348,23 +348,26 @@ context. Size is configurable: `widget_input_lines` (1 = single-line input,
 
 ```
 Browser (menu page or popup)
-   │  HTTPS + Bearer (remote: listen/allowed_ip/auth_token)
+   │  POST /cgi-bin/cs-aihelp.pl   (session check + read-only live_state)
    ▼
-cs-aihelp (Go daemon, port 45555)          ← since v1.0 the AI core
+cs-aihelp.pl (Perl proxy, loopback, HTTPS webserver-cert / Bearer auth_token)
+   │  /ask   (buffered or SSE stream:true)
+   ▼
+cs-aihelp (Go daemon, 127.0.0.1:45555)      ← since v1.0 the AI core
    │  in-memory RAG index (data/howto.ai/*.info)
    │  optional web research (ddg / api)
    │  provider call: free (Ollama→Pollinations) | provider (anthropic/openai/ollama)
    │  setup fallback provider → free
-   │  chat history (_cfg/aihelp/conv_*.json)
+   │  chat history (_cfg/aihelp/conv_*.json), /resume
    ▼
-Browser: answer + sources (+ "via free (Fallback)") rendered (JSON or SSE)
+Browser: tokens streamed as SSE (data:{"t":...} ... event:done) or buffered
+JSON; answer + sources (+ "via free (Fallback)") rendered.
 ```
 
 The frontend UI (menus, settings, popup, chat page) is the thin Perl layer:
-it writes `_cfg/cs-aihelp`, injects the bearer token after login, and the
-browser talks to the daemon. The Perl CGI (`cs-aihelp.pl`) remains as the
-session-gated path used before v1.0 (and for Level-1 live state via the
-encrypted `&exe()/&socket()` channel).
+it writes `_cfg/cs-aihelp`, collects the read-only live state and menu
+context, and proxies every /ask to the Go daemon over loopback. The exec
+channel stays in the session-gated Perl CGI (`cs-aihelp-exec.pl`).
 
 **Level 2 agentic loop (A3, browser-orchestrated):** the browser runs the
 loop, the daemon only answers.

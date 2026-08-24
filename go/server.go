@@ -153,6 +153,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("/reload", s.cors(s.auth(s.handleReload)))
 	mux.HandleFunc("/reindex", s.cors(s.auth(s.handleReindex)))
 	mux.HandleFunc("/ask", s.cors(s.auth(s.handleAsk)))
+	mux.HandleFunc("/resume", s.cors(s.auth(s.handleResume)))
 	return mux
 }
 
@@ -223,6 +224,25 @@ func (s *server) handleReindex(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// handleResume returns the NEWEST saved conversation of the member (the
+// Resume button in the Helpdesk). Reads the same conv_*.json files that the
+// Perl frontend used to read (identical JSON layout).
+func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
+	member := r.URL.Query().Get("member")
+	id, conv := newestConv(s.app.base, member)
+	if conv == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "no saved conversation"})
+		return
+	}
+	msgs := make([]map[string]any, 0, len(conv.Messages))
+	for _, m := range conv.Messages {
+		msgs = append(msgs, map[string]any{"role": m.Role, "text": m.Text})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "conv": id, "title": conv.Title, "messages": msgs,
+	})
+}
+
 func (s *server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -251,7 +271,9 @@ func (s *server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// streamAsk sends progress keep-alives and the final answer as SSE.
+// streamAsk token-streams the answer as SSE: `data: {"t":"<token>"}` per
+// token, keep-alive `:` lines, and an `event: done` with the result
+// metadata (conv/sources/via/action/provider_use) at the end.
 func (s *server) streamAsk(w http.ResponseWriter, r *http.Request, req AskRequest, member string) {
 	fl, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -260,40 +282,55 @@ func (s *server) streamAsk(w http.ResponseWriter, r *http.Request, req AskReques
 	if fl != nil {
 		fl.Flush()
 	}
-	done := make(chan AskResult, 1)
+	var mu sync.Mutex
+	emit := func(tok string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		d, _ := json.Marshal(map[string]string{"t": tok})
+		fmt.Fprintf(w, "data: %s\n\n", d)
+		if fl != nil {
+			fl.Flush()
+		}
+		return nil
+	}
+	// keep-alive while the first token is still pending (slow model start)
+	stop := make(chan struct{})
+	defer close(stop)
 	go func() {
-		res, err := s.app.Ask(req, member)
-		if err != nil {
-			done <- AskResult{}
-			return
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				mu.Lock()
+				fmt.Fprint(w, ":\n")
+				if fl != nil {
+					fl.Flush()
+				}
+				mu.Unlock()
+			}
 		}
-		done <- res
 	}()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case res := <-done:
-			if res.Answer == "" {
-				fmt.Fprint(w, "event: error\ndata: ask failed\n\n")
-			} else {
-				esc := strings.ReplaceAll(res.Answer, "\n", "\\n")
-				fmt.Fprintf(w, "data: %s\n\n", esc)
-				fmt.Fprintf(w, "event: done\ndata: {\"conv\":%q,\"sources\":%q,\"via\":%q}\n\n",
-					res.Conv, strings.Join(res.Sources, ","), res.Via)
-			}
-			if fl != nil {
-				fl.Flush()
-			}
-			return
-		case <-ticker.C:
-			fmt.Fprint(w, ":\n")
-			if fl != nil {
-				fl.Flush()
-			}
-		case <-r.Context().Done():
-			return
+
+	res, err := s.app.askStream(req, member, emit)
+	if err != nil {
+		d, _ := json.Marshal(map[string]any{"error": err.Error()})
+		fmt.Fprintf(w, "event: done\ndata: %s\n\n", d)
+		if fl != nil {
+			fl.Flush()
 		}
+		return
+	}
+	md := map[string]any{
+		"conv": res.Conv, "sources": res.Sources, "via": res.Via,
+		"action": res.Action, "provider_use": res.ProviderUse, "mode": res.Mode,
+	}
+	d, _ := json.Marshal(md)
+	fmt.Fprintf(w, "event: done\ndata: %s\n\n", d)
+	if fl != nil {
+		fl.Flush()
 	}
 }
 

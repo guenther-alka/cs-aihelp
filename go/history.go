@@ -29,9 +29,10 @@ type Conversation struct {
 }
 
 type ConvMeta struct {
-	ID    string `json:"id"`
-	Mtime int64  `json:"mtime"`
-	Title string `json:"title"`
+	ID     string `json:"id"`
+	Mtime  int64  `json:"mtime"`
+	Title  string `json:"title"`
+	Member string `json:"member"`
 }
 
 var convIDRe = regexp.MustCompile(`[^A-Za-z0-9_.-]`)
@@ -100,7 +101,12 @@ func listConvs(base string) []ConvMeta {
 			mtime = fi.ModTime().Unix()
 		}
 		title := ""
+		member := ""
 		if c, err := loadConv(base, id); err == nil {
+			if c.Updated > 0 {
+				mtime = c.Updated // authoritative (file mtime is fragile)
+			}
+			member = c.Member
 			title = c.Title
 			if title == "" {
 				for _, m := range c.Messages {
@@ -115,10 +121,25 @@ func listConvs(base string) []ConvMeta {
 				}
 			}
 		}
-		out = append(out, ConvMeta{ID: id, Mtime: mtime, Title: title})
+		out = append(out, ConvMeta{ID: id, Mtime: mtime, Title: title, Member: member})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Mtime > out[j].Mtime })
 	return out
+}
+
+// newestConv returns the ID and conversation of the NEWEST conversation of
+// the member, or ("", nil) if none exists (used by the /resume endpoint).
+func newestConv(base, member string) (string, *Conversation) {
+	for _, m := range listConvs(base) {
+		if m.Member != member {
+			continue
+		}
+		c, err := loadConv(base, m.ID)
+		if err == nil {
+			return m.ID, c
+		}
+	}
+	return "", nil
 }
 
 // cleanupConvs deletes conversations older than the retention window.

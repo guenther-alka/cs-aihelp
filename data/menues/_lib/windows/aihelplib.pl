@@ -96,6 +96,14 @@ sub ai_cfg_defaults {
         autostart     => 'on',     # on = start the Go daemon at server.pl boot (mode != off)
         widget_input_lines  => '1',   # popup: question input rows
         widget_answer_height => '220',# popup: answer area height (px)
+        # daemon / network (shared with the Go daemon; a Settings save must
+        # preserve them -- the Perl CGI proxies to the daemon over loopback)
+        listen       => '127.0.0.1:45555',
+        auth_token   => '',
+        allowed_ip   => '',
+        cors_origin  => '',
+        tls_cert     => '/opt/csweb-gui/_cfg/webserver/cert/server.crt',
+        tls_key      => '/opt/csweb-gui/_cfg/webserver/cert/server.key',
     };
 }
 
@@ -186,6 +194,7 @@ sub ai_cfg_read {
 sub ai_cfg_write {
     my %kv = @_;
     my %d  = %{ ai_cfg_defaults() };
+    my %cur = ai_cfg_read();
     my $path = ai_cfg_path();
     my ($dir) = $path =~ m{(.*)/[^/]+$};
     mkdir $dir unless -d $dir;          # _cfg/ may be missing on a fresh install
@@ -193,7 +202,8 @@ sub ai_cfg_write {
                   endpoint2 model2 api_key2 free_model2 exec_mode tool_use max_context
                   history history_turns widget research research_max
                   research_endpoint research_key fallback log ssrf_allow_private rate_limit
-                  exec_access exec_allow exec_deny autostart widget_input_lines widget_answer_height);
+                  exec_access exec_allow exec_deny autostart widget_input_lines widget_answer_height
+                  listen auth_token allowed_ip cors_origin tls_cert tls_key);
     my @lines = (
         '# cs-aihelp configuration -- see data/howto.ai/ai-helpdesk.info',
         '# Written by csweb-gui System > Services > AI Helpdesk.',
@@ -202,7 +212,12 @@ sub ai_cfg_write {
     );
     for my $k (@keys) {
         my $v = $kv{$k};
-        $v = $d{$k} if !defined $v || $v eq '';
+        if (!defined $v) {
+            # key not submitted by the form -> keep the current file value
+            $v = (defined $cur{$k} && $cur{$k} ne '') ? $cur{$k} : $d{$k};
+        } elsif ($v eq '') {
+            $v = $d{$k};
+        }
         push @lines, sprintf('%-12s = %s', $k, $v);
     }
     push @lines, '';
@@ -327,6 +342,142 @@ sub ai_daemon_status {
 sub ai_daemon_bin {
     my ($ok, $ver, $bin) = cstools_installed('aihelp');
     return $bin;
+}
+
+# --------------------------------------------------------------------- P2
+# Ensure a working IO::Socket::SSL is loaded. The napp-it bundle may ship an
+# IO::Socket::SSL/Net::SSLeay pair that is incompatible with the system Perl
+# (dev boxes); on failure we retry from the system @INC (production bundles
+# load fine on the first attempt).
+my $ai_ssl_ok = 0;
+sub ai_ssl_ready {
+    return 1 if $ai_ssl_ok;
+    my $ok = eval { require IO::Socket::SSL; 1 };
+    if (!$ok) {
+        # the bundle's IO::Socket::SSL/Net::SSLeay may be incompatible with
+        # the system Perl; clear the failed %INC marker and retry from the
+        # system @INC
+        delete $INC{'IO/Socket/SSL.pm'};
+        delete $INC{'Net/SSLeay.pm'};
+        my @keep = grep { !m{/cs_server/CGI$} } @INC;
+        local @INC = @keep;
+        $ok = eval { require IO::Socket::SSL; 1 };
+    }
+    $ai_ssl_ok = $ok ? 1 : 0;
+    return $ok ? 1 : 0;
+}
+
+# Forward a JSON request to the Go daemon over loopback. Buffered path uses
+# HTTP::Tiny (verify_SSL off when HTTPS); the streaming path uses a raw
+# socket (IO::Socket::INET/SSL) and forwards the daemon's SSE body to STDOUT
+# chunk by chunk (de-chunked) so the browser gets token streaming.
+sub ai_daemon_call {
+    my ($path, $body, $stream) = @_;
+    my %cfg = ai_cfg_read();
+    my $listen = ai_trim($cfg{listen} // '127.0.0.1:45555');
+    my $token  = ai_trim($cfg{auth_token} // '');
+    if ($stream) {
+        return ai_daemon_stream($listen, $token, $path, $body);
+    }
+    # plain http when no TLS cert is configured (matches the daemon's
+    # ListenAndServe fallback), https otherwise (verify_SSL off, loopback)
+    my $scheme = (ai_trim($cfg{tls_cert} // '') ne '') ? 'https' : 'http';
+    if ($scheme eq 'https' && !ai_ssl_ready()) {
+        return '';   # no working SSL stack -> daemon unreachable for us
+    }
+    my $url = "$scheme://$listen$path";
+    my %hdr = ('content-type' => 'application/json');
+    $hdr{authorization} = "Bearer $token" if $token ne '';
+    my $ua = HTTP::Tiny->new(timeout => 300, verify_SSL => 0);
+    my $resp = $ua->post($url, { headers => \%hdr, content => $body });
+    return '' unless $resp->{success};
+    return $resp->{content};
+}
+
+# raw-socket streaming passthrough of the daemon's SSE body to STDOUT.
+# Uses sysread/syswrite exclusively (no buffered <> mixing) and de-chunks
+# the daemon's chunked transfer encoding. Returns 1 on HTTP 200.
+sub ai_daemon_stream {
+    my ($listen, $token, $path, $body) = @_;
+    my %cfg = ai_cfg_read();
+    my $tls = (ai_trim($cfg{tls_cert} // '') ne '') ? 1 : 0;
+    my ($host, $port) = $listen =~ m{^([^:]+):(\d+)$};
+    ($host, $port) = ('127.0.0.1', 45555) unless defined $port;
+    my $sock;
+    if ($tls) {
+        ai_ssl_ready() or return 0;
+        require IO::Socket::SSL;
+        $sock = IO::Socket::SSL->new(
+            PeerHost => $host, PeerPort => $port,
+            SSL_verify_mode => 0, Timeout => 10,
+        ) or return 0;
+    } else {
+        require IO::Socket::INET;
+        $sock = IO::Socket::INET->new(PeerAddr => "$host:$port", Proto => 'tcp', Timeout => 10)
+            or return 0;
+    }
+    my $req = "POST $path HTTP/1.1\r\nHost: $host:$port\r\n"
+        . "Content-Type: application/json\r\n"
+        . "Content-Length: " . length($body) . "\r\n"
+        . "Connection: close\r\n";
+    $req .= "Authorization: Bearer $token\r\n" if $token ne '';
+    $req .= "\r\n" . $body;
+    syswrite($sock, $req);
+
+    # read response headers (until CRLFCRLF) via sysread
+    my $hdr = '';
+    while (index($hdr, "\r\n\r\n") < 0 && length($hdr) < 65536) {
+        my $n = sysread($sock, my $b, 4096);
+        last unless defined $n && $n > 0;
+        $hdr .= $b;
+    }
+    return 0 unless $hdr =~ m{^HTTP/\S+\s+(\d+)};
+    return 0 unless $1 == 200;
+    my $chunked = ($hdr =~ /^Transfer-Encoding:\s*chunked\b/im) ? 1 : 0;
+    my $pos  = index($hdr, "\r\n\r\n");
+    my $buf  = $pos >= 0 ? substr($hdr, $pos + 4) : '';
+
+    binmode STDOUT;
+    $| = 1;
+    if ($chunked) {
+        while (1) {
+            my $line = '';
+            while (index($line, "\n") < 0) {
+                if (length($buf)) {
+                    my $nl = index($buf, "\n");
+                    if ($nl >= 0) { $line .= substr($buf, 0, $nl + 1); $buf = substr($buf, $nl + 1); last; }
+                    else          { $line .= $buf; $buf = ''; }
+                }
+                my $n = sysread($sock, my $b, 4096);
+                last unless defined $n && $n > 0;
+                $buf .= $b;
+            }
+            $line =~ s/\r?\n$//;
+            $line =~ s/;.*//;                  # chunk extensions
+            my $size = hex($line);
+            last if $size == 0;
+            while (length($buf) < $size + 2) { # chunk + trailing CRLF
+                my $n = sysread($sock, my $b, 4096);
+                last unless defined $n && $n > 0;
+                $buf .= $b;
+            }
+            if (length($buf) >= $size) {
+                print substr($buf, 0, $size);
+                $buf = substr($buf, $size + 2);
+            } else {
+                last;
+            }
+        }
+    } else {
+        if (length($buf)) { print $buf; }
+        while (1) {
+            my $n = sysread($sock, my $b, 8192);
+            last unless defined $n && $n > 0;
+            print $b;
+        }
+    }
+    close $sock;
+    return 1;
 }
 
 # Level 2 -- system-prompt hint telling the model how to propose a command
@@ -1030,31 +1181,84 @@ function _aiAccessMode(){
 function _aiCall(log, question, toolResults){
   if(_aiBusy) return;
   _aiBusy=true;
-  var wait=_aiAppend(log,'<i>'+_aiT.answering+'</i>','aihelp_w');
-  _aiTimer(wait);
   var tb=_aiAccessMode();
   var q=question;
   if(q && tb.plan){ q=_aiT.plan+q; }
-  fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,question:q,conv:_aiConv,tool_results:toolResults,provider_use:tb.provider})})
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    if(wait._t){ clearInterval(wait._t); }
+  var wait=_aiAppend(log,'<i>'+_aiT.answering+'</i>','aihelp_w');
+  _aiTimer(wait);
+  var ansEl=null, done=false;
+  function removeWait(){
+    if(wait && wait._t){ clearInterval(wait._t); }
     if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); }
+    wait=null;
+  }
+  function handleMeta(d){
+    removeWait();
     _aiBusy=false;
-    if(d && d.ok){
-      _aiConv=d.conv||_aiConv;
-      if(question) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(question),'aihelp_q');
-      _aiAppend(log,_aiAnswerHtml(d),'aihelp_a');
-      if(d.action){
-        if(_aiPopup){ _aiAppend(log,'<span class="aihelp_s">'+_aiT.actionfs+'</span>','aihelp_s'); }
-        else { _aiShowAction(log, d.action, tb); }
-      }
-    } else {
-      _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
+    if(!d){ return; }
+    if(d.error){ _aiAppend(log,'<span style="color:#a00">'+_aiErr(d.error)+'</span>','aihelp_e'); return; }
+    if(d.conv){ _aiConv=d.conv; }
+    if(d.via){ _aiAppend(log,'<div class="aihelp_v">via '+_aiEsc(d.via)+'</div>','aihelp_v'); }
+    if(d.sources && d.sources.length){ _aiAppend(log,'<div class="aihelp_s">'+_aiT.sources+': '+_aiEsc(d.sources.join(', '))+'</div>','aihelp_s'); }
+    if(d.action){
+      if(_aiPopup){ _aiAppend(log,'<span class="aihelp_s">'+_aiT.actionfs+'</span>','aihelp_s'); }
+      else { _aiShowAction(log, d.action, tb); }
     }
+  }
+  function handleLine(ln){
+    if(ln.charAt(0)===':'){ return; }                       // keep-alive
+    if(ln.indexOf('data: ')!==0){ return; }
+    var obj=null; try{ obj=JSON.parse(ln.slice(6)); }catch(e){}
+    if(!obj){ return; }
+    if(typeof obj.t==='string'){                            // streamed token
+      if(wait){ removeWait(); }
+      if(!ansEl){
+        var wrap=document.createElement('div'); wrap.className='aihelp_a'; wrap.style.cssText='display:flex;align-items:flex-start';
+        var body=document.createElement('div'); body.style.cssText='flex:1;white-space:pre-wrap'; wrap.appendChild(body);
+        var cb=document.createElement('button'); cb.style.cssText='margin-left:8px;font-size:11px;padding:2px 8px'; cb.textContent=_aiT.copy;
+        cb.onclick=function(){ var t=body.innerText||body.textContent||''; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t); } cb.textContent='OK'; setTimeout(function(){ cb.textContent=_aiT.copy; },1200); };
+        wrap.appendChild(cb);
+        log.appendChild(wrap);
+        ansEl=body;
+      }
+      var tn=document.createElement('span'); tn.textContent=obj.t;
+      ansEl.appendChild(tn);
+      log.scrollTop=log.scrollHeight;
+    } else if(obj.conv!==undefined || obj.error!==undefined){ // done / error event
+      done=true;
+      handleMeta(obj);
+    }
+  }
+  fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,question:q,conv:_aiConv,tool_results:toolResults||[],provider_use:tb.provider,stream:true})})
+  .then(function(r){
+    var ct=(r.headers.get('content-type')||'').toLowerCase();
+    if(ct.indexOf('application/json')>=0 || !r.body || !r.body.getReader){
+      return r.json().then(function(d){ if(question) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(question),'aihelp_q'); handleMeta(d); });
+    }
+    if(question) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(question),'aihelp_q');
+    var reader=r.body.getReader(), dec=new TextDecoder(), buf='';
+    function pump(){
+      return reader.read().then(function(res){
+        if(res.done){
+          buf+=dec.decode();
+          var ls=buf.split('\n');
+          for(var i=0;i<ls.length && !done;i++){ handleLine(ls[i]); }
+          if(!done){ handleMeta(null); }
+          return;
+        }
+        buf+=dec.decode(res.value,{stream:true});
+        var idx;
+        while(!done && (idx=buf.indexOf('\n'))>=0){
+          var ln=buf.slice(0,idx); buf=buf.slice(idx+1);
+          handleLine(ln);
+        }
+        return pump();
+      });
+    }
+    return pump();
   })
-  .catch(function(e){ if(wait._t){ clearInterval(wait._t); } if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiBusy=false; _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
+  .catch(function(e){ removeWait(); _aiBusy=false; _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
 }
 function _aiAsk(logId, inpId, btnId){
   var log=document.getElementById(logId||'%%LOGID%%');

@@ -4,6 +4,8 @@ package main
 // ollama / free (local Ollama -> Pollinations GET), with setup fallback.
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,9 @@ type chatMsg struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
+
+// tokenEmitter is called for every streamed token of the answer.
+type tokenEmitter func(string) error
 
 // callProvider sends system + msgs to the configured provider and returns
 // the answer text. cfg.Mode must be "free" or "provider".
@@ -164,6 +169,200 @@ func ollamaProbe(base string) ([]string, bool) {
 	ollamaProbeCache.models = models
 	ollamaProbeCache.until = time.Now().Add(30 * time.Second)
 	return models, ok
+}
+
+// providerAnswer resolves the configured provider and returns the answer.
+// When emit != nil the answer is token-streamed via emit (Ollama NDJSON /
+// OpenAI SSE); anthropic and the Pollinations fallback stay buffered (the
+// whole answer is emitted once).
+func providerAnswer(cfg *Config, system string, msgs []chatMsg, emit tokenEmitter) (string, error) {
+	if cfg.Mode == "free" {
+		if emit != nil {
+			if a, err := freeOllamaStream(cfg, system, msgs, emit); err == nil && a != "" {
+				return a, nil
+			}
+		} else {
+			if a, err := freeOllama(cfg, system, msgs); err == nil && a != "" {
+				return a, nil
+			}
+		}
+		if a, err := freePollinations(system, msgs); err == nil && a != "" {
+			if emit != nil {
+				emit(a)
+			}
+			return a, nil
+		}
+		return "", errors.New("kein kostenloser Provider erreichbar (Ollama lokal nicht gefunden, Pollinations nicht verfuegbar). Fuer zuverlaessigen Free-Betrieb: Ollama installieren (curl -fsSL https://ollama.com/install.sh | sh)")
+	}
+
+	kind := cfg.Provider
+	if kind == "" {
+		kind = "openai"
+	}
+	if kind == "anthropic" {
+		a, err := callProvider(cfg, system, msgs)
+		if err != nil {
+			return "", err
+		}
+		if emit != nil {
+			emit(a)
+		}
+		return a, nil
+	}
+
+	ep := cfg.Endpoint
+	if ep == "" {
+		if kind == "ollama" {
+			ep = "http://127.0.0.1:11434/api/chat"
+		} else {
+			ep = "https://api.openai.com/v1/chat/completions"
+		}
+	}
+	if !safeURL(ep, true, cfg.SSRFAllowPrivate) {
+		return "", errors.New("endpoint not allowed (SSRF guard)")
+	}
+	model := cfg.Model
+	if model == "" {
+		if kind == "ollama" {
+			model = "llama3.1"
+		} else {
+			model = "gpt-4o-mini"
+		}
+	}
+	if emit != nil {
+		if kind == "ollama" {
+			return ollamaNDJSONStream(ep, model, system, msgs, emit)
+		}
+		return openaiSSEStream(ep, model, system, msgs, cfg.APIKey, emit)
+	}
+	return callProvider(cfg, system, msgs)
+}
+
+// ollamaNDJSONStream POSTs /api/chat with stream:true and emits the
+// message.content tokens as NDJSON lines arrive.
+func ollamaNDJSONStream(ep, model, system string, msgs []chatMsg, emit tokenEmitter) (string, error) {
+	all := []chatMsg{{Role: "system", Content: system}}
+	all = append(all, msgs...)
+	b, _ := json.Marshal(map[string]any{"model": model, "messages": all, "stream": true})
+	req, err := http.NewRequest(http.MethodPost, ep, bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		rb, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("http %d: %s", resp.StatusCode, briefErr(rb))
+	}
+	var sb strings.Builder
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var chunk struct {
+			Message struct{ Content string `json:"content"` } `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &chunk) != nil {
+			continue
+		}
+		tok := chunk.Message.Content
+		if tok != "" {
+			sb.WriteString(tok)
+			if emit != nil {
+				emit(tok)
+			}
+		}
+	}
+	return sb.String(), sc.Err()
+}
+
+// openaiSSEStream POSTs /chat/completions with stream:true and emits the
+// delta.content tokens from the SSE `data:` lines ([DONE] terminator).
+func openaiSSEStream(ep, model, system string, msgs []chatMsg, apiKey string, emit tokenEmitter) (string, error) {
+	all := []chatMsg{{Role: "system", Content: system}}
+	all = append(all, msgs...)
+	b, _ := json.Marshal(map[string]any{"model": model, "messages": all, "max_tokens": 1024, "stream": true})
+	req, err := http.NewRequest(http.MethodPost, ep, bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		rb, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("http %d: %s", resp.StatusCode, briefErr(rb))
+	}
+	var sb strings.Builder
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		d := strings.TrimSpace(line[5:])
+		if d == "" || d == "[DONE]" {
+			continue
+		}
+		var ch struct {
+			Choices []struct {
+				Delta struct{ Content string `json:"content"` } `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(d), &ch) != nil {
+			continue
+		}
+		if len(ch.Choices) > 0 {
+			tok := ch.Choices[0].Delta.Content
+			if tok != "" {
+				sb.WriteString(tok)
+				if emit != nil {
+					emit(tok)
+				}
+			}
+		}
+	}
+	return sb.String(), sc.Err()
+}
+
+// freeOllamaStream mirrors freeOllama but token-streams via /api/chat.
+func freeOllamaStream(cfg *Config, system string, msgs []chatMsg, emit tokenEmitter) (string, error) {
+	base := "http://127.0.0.1:11434"
+	if b := os.Getenv("OLLAMA_BASE"); b != "" {
+		base = b
+	}
+	if !safeURL(base, true, cfg.SSRFAllowPrivate) {
+		return "", errors.New("ollama endpoint not allowed (SSRF guard)")
+	}
+	models, ok := ollamaProbe(base)
+	if !ok || len(models) == 0 {
+		return "", errors.New("ollama not reachable")
+	}
+	model := ""
+	for _, m := range models {
+		if cfg.FreeModel != "" && m == cfg.FreeModel {
+			model = m
+			break
+		}
+	}
+	if model == "" {
+		model = models[0]
+	}
+	return ollamaNDJSONStream(base+"/api/chat", model, system, msgs, emit)
 }
 
 // freeOllama queries the local (or OLLAMA_BASE) Ollama daemon.
