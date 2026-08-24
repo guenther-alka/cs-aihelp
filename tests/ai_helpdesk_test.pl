@@ -1,14 +1,19 @@
 # ai_helpdesk_test.pl -- functional test for aihelplib.pl (AI Helpdesk)
 # Uses a separate mock HTTP server (ai_mock_server.pl) for the provider call.
 use strict;
+use FindBin qw($RealBin);
 use vars qw($wpath $dpath $tpath %in);
 
-$wpath = 'C:/opt/csweb-gui';
-$dpath = 'C:/opt/csweb-gui/data';
-$tpath = 'C:/opt/csweb-gui/tmp';
+# repo layout: tests/ is a sibling of data/ and config/ -- the repo root
+# stands in for a csweb-gui installation
+(my $root = "$RealBin/..") =~ s{\\}{/}g;
+$wpath = $root;
+$dpath = "$root/data";
+$tpath = "$root/tmp";
+mkdir $tpath unless -d $tpath;
 %in = ( id => 'test', member => 'localhost~127.0.0.1' );
 
-require 'C:/opt/csweb-gui/data/menues/_lib/windows/aihelplib.pl';
+require "$root/data/menues/_lib/windows/aihelplib.pl";
 
 my $pass = 0;
 my $fail = 0;
