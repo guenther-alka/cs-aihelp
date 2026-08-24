@@ -115,8 +115,10 @@ the config) and removes it on shutdown; `start` is the boot-hook entry point
 (detached, skips when the port is already in use); `stop` works on all
 platforms (`taskkill` on Windows).
 
-Endpoints (HTTPS, Bearer auth): `GET /health /status /sources?q= /models`,
-`POST /ask` (JSON or `stream=true` → SSE), `POST /reload /reindex`.
+Endpoints (HTTPS, Bearer auth): `GET /health /status /sources?q= /models`
+and `GET /resume?member=...` (newest conversation of the member),
+`POST /ask` (JSON or `stream=true` → SSE), `POST /reload /reindex`. From the
+browser these are reached via the session-gated `cs-aihelp.pl` proxy.
 
 Daemon-only config keys (in the same `_cfg/cs-aihelp`):
 
@@ -374,9 +376,9 @@ loop, the daemon only answers.
 
 ```
 Browser (full-screen chat page)
-   │  1. question
+   │  1. question (via cs-aihelp.pl proxy)
    ▼
-daemon /ask ──▶ answer (+ optional [[ACTION]]{cmd,reason})
+daemon /ask ──▶ answer (+ optional [[ACTION]]{cmd,reason})  [SSE stream]
    │
    │  action shown: confirm mode → user clicks "Ausführen",
    │                auto mode → runs automatically
@@ -384,7 +386,7 @@ daemon /ask ──▶ answer (+ optional [[ACTION]]{cmd,reason})
 cgi-bin/cs-aihelp-exec.pl   (session-gated, D2 allow/deny validation)
    │  executes over the encrypted &exe()/&socket() channel
    ▼
-Browser ── tool_results (command output) ──▶ daemon /ask (continues)
+Browser ── tool_results (command output) ──▶ daemon /ask via proxy (continues)
 ```
 
 Execution never happens in the Go daemon — it is proposer only.

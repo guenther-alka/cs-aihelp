@@ -5,10 +5,11 @@
 
 OVERVIEW
 --------
-The AI Helpdesk answers napp-it questions inside the web-GUI. It is a pure
-frontend feature: browser JS -> cs-aihelp.pl (JSON CGI) -> aihelplib.pl
-(light-RAG over data/howto.ai/*.info + provider call) -> answer rendered
-in a chat div (no page reload).
+The AI Helpdesk answers napp-it questions inside the web-GUI. Browser JS
+talks to cs-aihelp.pl (session-gated proxy) which forwards every question to
+the Go daemon (RAG over data/howto.ai/*.info, web research, provider call
+Ollama/OpenAI, token streaming/SSE, history). The answer is rendered in the
+chat div as it streams (no page reload).
 
 Three modes (config: /opt/csweb-gui/_cfg/cs-aihelp):
   off      - module disabled
@@ -23,10 +24,10 @@ Three modes (config: /opt/csweb-gui/_cfg/cs-aihelp):
 
 FILES
 -----
-  data/wwwroot/cgi-bin/cs-aihelp.pl              JSON CGI (session check via
-                                                 socketlib check_session)
+  data/wwwroot/cgi-bin/cs-aihelp.pl              session-gated PROXY to the Go
+                                                 daemon (chat, SSE streaming)
   data/wwwroot/cgi-bin/cs-aihelp-exec.pl         Level 2 exec CGI (allow/deny)
-  data/menues/_lib/windows/aihelplib.pl          config, RAG, provider call,
+  data/menues/_lib/windows/aihelplib.pl          config, daemon proxy helpers,
                                                  chat JS/page/popup
   data/menues/_lib/windows/cstoolslib.pl         CS tools registry + GitHub
                                                  download (System > CS Tools
@@ -82,7 +83,7 @@ CONFIG KEYS (_cfg/cs-aihelp)
   history       off | today | week | month | 6months | all  (default month)
   history_turns prior turns sent as context on resume (default 10)
   free_model    local Ollama model tag for mode=free ('' = auto/first)
-  widget        on | off -- floating "KI fragen" popup on every logged-in
+  widget        on | off -- floating "mini AI Helpdesk" popup on every logged-in
                 page, injected globally from interface.pl header (default on)
   research      off | ddg | api -- web research. ddg (default) = DuckDuckGo
                 Lite (free, no key, direct; Google blocks server-side
@@ -102,6 +103,13 @@ CONFIG KEYS (_cfg/cs-aihelp)
                 cloud-metadata and reserved ranges stay blocked (default no)
   rate_limit    max requests per minute per client IP in the Go daemon
                 (0 = off, default 60)
+  listen        Go daemon listen address (default 127.0.0.1:45555)
+  auth_token    daemon bearer token (the proxy sends it over loopback;
+                mandatory when listen is not loopback)
+  allowed_ip    comma IP/CIDR allowlist for the daemon (empty = loopback
+                only, '*' = any)
+  cors_origin   frontend origin for CORS pinning (optional)
+  tls_cert / tls_key   daemon TLS (default = the webserver.pl certificate)
   (SSRF guard)  provider endpoint and research_endpoint are validated:
                 http(s) only; link-local/metadata/reserved are blocked;
                 loopback allowed; RFC1918 only with ssrf_allow_private=yes
