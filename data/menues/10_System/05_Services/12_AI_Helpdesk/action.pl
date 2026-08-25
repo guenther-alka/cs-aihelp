@@ -42,6 +42,16 @@ sub my_action {
         return;
     }
 
+    # ------------------------------------------------- ollama start/stop (Local AI)
+    if (($in{'ollama'} // '') =~ /^(start|stop)$/) {
+        my ($ok, $msg) = ($1 eq 'start') ? ai_ollama_run() : ai_ollama_stop();
+        print "<div style='color:#060;background:#dfd;border:1px solid #6a6;border-radius:4px;padding:6px 10px;display:inline-block'>"
+            . ai_esc($msg) . "</div><br><br>\n";
+        print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 1500);</script>\n";
+        &log_end;
+        return;
+    }
+
     # ---------------------------------------------------------------- save
     if ($in{'answered'}) {
         my %kv;
@@ -138,16 +148,63 @@ sub my_action {
         $daemon_html = "<span style='color:#a00'><b>not installed</b></span> (see System &gt; CS Tools Download)";
     }
 
-    my $st_rows  = "<b>Mode</b>\t$mode_html\n"
+    # ---- Local AI (Ollama) status ----
+    my ($ollama_models, $ollama_ok) = ai_ollama_models();
+    my $ollama_ver   = ai_ollama_version();
+    my $ollama_state = $ollama_ok
+        ? "<span style='color:darkgreen'><b>running</b></span>"
+        : "<span style='color:#a00'><b>not running</b></span>";
+    my $ollama_form = sub {
+        my ($cmd, $label) = @_;
+        return "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
+            . "<input type='hidden' name='member' value=\"" . ai_esc($in{'member'}) . "\">"
+            . "<input type='hidden' name='id' value=\"" . ai_esc($in{'id'}) . "\">"
+            . "<input type='hidden' name='l1' value=\"" . ai_esc($in{'l1'}) . "\">"
+            . "<input type='hidden' name='l2' value=\"" . ai_esc($in{'l2'}) . "\">"
+            . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
+            . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
+            . "<input type='hidden' name='ollama' value=\"" . ai_esc($cmd) . "\">"
+            . "<input type='submit' value=\"" . ai_esc($label) . "\"></form>";
+    };
+    my $ollama_html = ($ollama_ver ne '' ? ai_esc($ollama_ver) . ' &nbsp; ' : '')
+        . $ollama_state . " &nbsp; "
+        . $ollama_form->('start', 'Start') . ' ' . $ollama_form->('stop', 'Stop');
+    my $ollama_base = $ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434';
+
+    # effective model (mode=free: Ollama model; mode=provider: configured model)
+    my $model_html = '';
+    if ($resolved) {
+        if (($resolved->{provider} // '') eq 'free') {
+            my $fm = ai_trim($aicfg{free_model} // '');
+            if ($fm ne '') {
+                $model_html = ai_esc($fm);
+            } elsif ($ollama_ok && @$ollama_models) {
+                $model_html = ai_esc($ollama_models->[0]) . " <span style='color:#888'>(auto)</span>";
+            } else {
+                $model_html = "<i>auto (no model installed -- pull one in System &gt; CS Tools Download)</i>";
+            }
+        } else {
+            $model_html = ai_esc($resolved->{model} // '');
+        }
+    }
+
+    # ---- table 1: Local AI (Ollama) ----
+    my $t1_rows  = "<b>Model</b>\t$model_html\n"
+                 . "<b>Ollama</b>\t$ollama_html\n"
+                 . "<b>Base</b>\t<span style='font-family:monospace;font-size:12px'>" . ai_esc($ollama_base) . "</span> (OLLAMA_BASE)\n";
+    print "<b>Local AI -Ollama-</b><br>\n";
+    print &list2table($t1_rows, "160px,560px", "", "", "n");
+    print "<br><br>\n";
+
+    # ---- table 2: CS-AI Helpdesk (the napp-it service) ----
+    my $t2_rows  = "<b>Daemon</b>\t$daemon_html\n"
+                 . "<b>Config</b>\t" . ai_esc(ai_cfg_path()) . "\n"
+                 . "<b>Mode</b>\t$mode_html\n"
                  . "<b>AI endpoint</b>\t$ep_html\n"
-                 . "<b>Model</b>\t" . ($resolved ? ai_esc($resolved->{model} // '') : '') . "\n"
-                 . "<b>Daemon</b>\t$daemon_html\n"
-                 . "<b>Daemon listen</b>\t$listen_html\n"
-                 . "<b>Config</b>\t" . ai_esc(ai_cfg_path()) . "\n";
-    print &list2table($st_rows, "160px,560px", "", "", "n");
-    print "<br><span style='color:#888;font-size:11px'>"
-        . "AI endpoint = the LLM the daemon talks to (Ollama on 127.0.0.1:11434 for mode=free). "
-        . "Daemon listen = the Go service address (cs-aihelp).</span><br><br>\n";
+                 . "<b>Daemon listen</b>\t$listen_html\n";
+    print "<b>CS-AI Helpdesk</b><br>\n";
+    print &list2table($t2_rows, "160px,560px", "", "", "n");
+    print "<br>\n";
 
     # --------------------------------------------------------------- form
     my $sel = sub {

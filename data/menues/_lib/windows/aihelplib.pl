@@ -865,6 +865,68 @@ sub ai_ollama_models {
     return (\@models, 1);
 }
 
+# Ollama daemon version (GET /api/version); '' if not reachable.
+sub ai_ollama_version {
+    my $base = $ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434';
+    my $ua = HTTP::Tiny->new(timeout => 2, verify_SSL => 0);
+    my $r = $ua->get("$base/api/version");
+    return '' unless $r->{success};
+    my $d;
+    eval { $d = decode_json($r->{content}) };
+    return ($d->{version} // '') if $d;
+    return '';
+}
+
+# locate the Ollama daemon executable (PATH + common install locations)
+sub _ai_ollama_bin {
+    my $exe = ($^O =~ /MSWin/) ? 'ollama.exe' : 'ollama';
+    my $sep = ($^O =~ /MSWin/) ? ';' : ':';
+    for my $dir (split(/$sep/, $ENV{PATH} // '')) {
+        next if $dir eq '';
+        my $c = "$dir/$exe";
+        $c =~ s{/}{\\}g if $^O =~ /MSWin/;
+        return $c if -x $c;
+    }
+    if ($^O =~ /MSWin/) {
+        my $c = "$ENV{LOCALAPPDATA}/Programs/Ollama/ollama.exe";
+        $c =~ s{/}{\\}g;
+        return $c if -f $c;
+    } else {
+        for my $c ('/usr/local/bin/ollama', '/usr/bin/ollama', '/opt/homebrew/bin/ollama',
+                   '/Applications/Ollama.app/Contents/Resources/ollama') {
+            return $c if -x $c;
+        }
+    }
+    return '';
+}
+
+# start the Ollama daemon (detached `ollama serve`); returns (ok, msg)
+sub ai_ollama_run {
+    my $bin = _ai_ollama_bin();
+    return (0, 'ollama binary not found -- install Ollama (System > CS Tools Download)') unless $bin ne '';
+    if ($^O =~ /MSWin/) {
+        system(1, 'powershell', '-NoProfile', '-Command',
+            "Start-Process -WindowStyle Hidden -FilePath '$bin' -ArgumentList 'serve'");
+        return (1, 'ollama starting ...');
+    }
+    my $pid = fork();
+    return (1, 'ollama starting ...') if $pid;
+    return (0, 'fork failed') unless defined $pid;
+    eval { setsid() };
+    exec($bin, 'serve');
+    exit 0;
+}
+
+# stop the Ollama daemon; returns (ok, msg)
+sub ai_ollama_stop {
+    if ($^O =~ /MSWin/) {
+        my $out = `taskkill /F /IM ollama.exe 2>&1`;
+        return (1, ai_trim($out // ''));
+    }
+    my $out = `pkill -x ollama 2>&1`;
+    return (1, ai_trim($out // ''));
+}
+
 # background "ollama pull <model>" via the Ollama API (no shell); spawns a
 # detached child so the CGI returns immediately. Returns 1 if spawned.
 sub ai_ollama_pull_bg {
