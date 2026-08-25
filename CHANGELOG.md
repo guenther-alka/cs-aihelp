@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.5 (2026-08-25) — OpenRouter as a selectable mode=provider option
+
+- **OpenRouter is now also selectable as a full `provider` (mode=provider),
+  not just the mode=free fallback leg added in v1.1.4.** Provider dropdown
+  (Settings + Provider2) gained an `openrouter` entry; `callProvider()`'s
+  endpoint/model default tables gained an `openrouter` case (endpoint
+  `https://openrouter.ai/api/v1/chat/completions`, default model
+  `meta-llama/llama-3.1-8b-instruct:free`). Uses the existing OpenAI-compatible
+  request path (Bearer `api_key` header) -- no new code path needed, since
+  OpenRouter is OpenAI-compatible. Mirrored in `aihelplib.pl`'s `ai_resolve()`
+  and the AI Helpdesk settings form (`Provider` / `Provider 2` selects).
+  Lets a user run OpenRouter's free `:free` model routes as the *primary*
+  provider (mode=provider) instead of only as a free-mode fallback leg.
+
 ## v1.1.4 (2026-08-25) — OpenRouter as a third mode=free leg
 
 - **New optional `mode=free` fallback leg: OpenRouter** (`openrouter_key` /

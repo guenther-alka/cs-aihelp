@@ -110,6 +110,8 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 			ep = "https://api.anthropic.com/v1/messages"
 		case "ollama":
 			ep = "http://127.0.0.1:11434/api/chat"
+		case "openrouter":
+			ep = "https://openrouter.ai/api/v1/chat/completions"
 		default:
 			ep = "https://api.openai.com/v1/chat/completions"
 		}
@@ -124,6 +126,8 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 			model = "claude-sonnet-5"
 		case "ollama":
 			model = "llama3.1"
+		case "openrouter":
+			model = DefaultOpenRouterModel
 		default:
 			model = "gpt-4o-mini"
 		}
