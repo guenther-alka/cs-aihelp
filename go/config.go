@@ -23,6 +23,13 @@ type Config struct {
 	Model      string // '' = provider default
 	APIKey     string
 	FreeModel  string // mode=free: local Ollama model tag ('' = first)
+	// cs_26.08.25 (Gea: "openai hat kein free provider, openrouter aber
+	// schon?"): OpenRouter offers keyless-cost ":free" model routes, but
+	// still requires an account + API key (unlike Ollama/Pollinations).
+	// Third leg of the mode=free chain: Ollama (local) -> OpenRouter (if
+	// a key is configured) -> Pollinations (keyless GET, last resort).
+	OpenRouterKey   string // openrouter.ai API key; '' = leg skipped
+	OpenRouterModel string // '' = DefaultOpenRouterModel (a current ":free" route)
 	Fallback   string // off | free
 	ToolUse    bool
 	MaxContext int
@@ -160,6 +167,10 @@ func LoadConfig(path string) (*Config, error) {
 			cfg.FreeModel2 = v
 		case "free_model":
 			cfg.FreeModel = v
+		case "openrouter_key":
+			cfg.OpenRouterKey = v
+		case "openrouter_model":
+			cfg.OpenRouterModel = v
 		case "fallback":
 			cfg.Fallback = v
 		case "tool_use":
@@ -241,7 +252,7 @@ func (c *Config) Save() error {
 	var b strings.Builder
 	b.WriteString("# cs-aihelp configuration -- see data/howto.ai/ai-helpdesk.info\n")
 	b.WriteString("# Written by cs-aihelp (Go daemon / csweb-gui Settings).\n")
-	b.WriteString("# DO NOT SHARE: api_key and auth_token are secrets.\n\n")
+	b.WriteString("# DO NOT SHARE: api_key, openrouter_key and auth_token are secrets.\n\n")
 	fw := func(k, v string) { fmt.Fprintf(&b, "%-14s = %s\n", k, v) }
 	yn := func(v bool) string {
 		if v {
@@ -255,6 +266,8 @@ func (c *Config) Save() error {
 	fw("model", c.Model)
 	fw("api_key", c.APIKey)
 	fw("free_model", c.FreeModel)
+	fw("openrouter_key", c.OpenRouterKey)
+	fw("openrouter_model", c.OpenRouterModel)
 	fw("mode2", c.Mode2)
 	fw("provider2", c.Provider2)
 	fw("endpoint2", c.Endpoint2)

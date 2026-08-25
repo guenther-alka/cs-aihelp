@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.4 (2026-08-25) — OpenRouter as a third mode=free leg
+
+- **New optional `mode=free` fallback leg: OpenRouter** (`openrouter_key` /
+  `openrouter_model` config keys). OpenAI's API has no free tier at all (a
+  card is required from the first call), but OpenRouter offers real
+  zero-cost `:free` model routes -- still gated by a free-to-create account
+  + API key though, unlike Ollama (local, no account) or Pollinations
+  (keyless GET), so it's an opt-in third leg rather than a default one.
+  Chain order: local Ollama -> OpenRouter (only if `openrouter_key` is set)
+  -> Pollinations. Buffered (`freeOpenRouter`) and streaming
+  (`freeOpenRouterStream`, reuses the existing OpenAI-compatible SSE
+  parser) variants added; default model
+  `meta-llama/llama-3.1-8b-instruct:free` (overridable -- OpenRouter's
+  free-route roster changes over time).
+- **`freeModeError()` extended to 3 legs**: now reports Ollama / OpenRouter /
+  Pollinations status individually and, when no `openrouter_key` is set,
+  hints at getting a free key from openrouter.ai as an alternative to
+  installing Ollama.
+
 ## v1.1.3 (2026-08-25) — free-mode error text in English
 
 - **`freeModeError()` / `ollamaProbeError()` messages translated from German

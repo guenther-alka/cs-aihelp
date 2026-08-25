@@ -17,12 +17,26 @@ import (
 	"time"
 )
 
-// freeModeError builds a specific, actionable error for mode=free when both
-// fallback legs (local Ollama, Pollinations) failed -- instead of one generic
-// message, it reports what actually happened with each so the user (and the
-// widget) can tell "Ollama not installed" apart from "Pollinations rejected
-// the request" (e.g. their free anonymous tier changed / returns 402).
-func freeModeError(oErr, pErr error) error {
+// DefaultOpenRouterModel is used when openrouter_model is unset. OpenRouter's
+// roster of ":free" routes (zero-cost model variants, still gated by an
+// account + API key) changes over time -- check https://openrouter.ai/models
+// ?max_price=0 and set openrouter_model under Settings > AI Helpdesk if this
+// one has been retired.
+const DefaultOpenRouterModel = "meta-llama/llama-3.1-8b-instruct:free"
+
+// freeModeError builds a specific, actionable error for mode=free when all
+// fallback legs (local Ollama, OpenRouter, Pollinations) failed -- instead of
+// one generic message, it reports what actually happened with each so the
+// user (and the widget) can tell "Ollama not installed" apart from
+// "OpenRouter has no key configured" apart from "Pollinations rejected the
+// request" (e.g. their free anonymous tier changed / returns 402).
+//
+// cs_26.08.25 (Gea: "openai hat kein free provider, openrouter aber schon?"
+// -- correct: OpenAI's API has no free tier at all (card required from the
+// first call), OpenRouter does offer real ":free" model routes, but still
+// needs a free-to-create account + API key, so it's a third OPTIONAL leg
+// here rather than a keyless fallback like Ollama/Pollinations).
+func freeModeError(oErr, orErr, pErr error) error {
 	oMsg := "not reachable (no local Ollama service found)"
 	ollamaInstalled := false
 	if oErr != nil {
@@ -32,18 +46,30 @@ func freeModeError(oErr, pErr error) error {
 		// it again, tell them to pull a model instead.
 		ollamaInstalled = strings.Contains(oMsg, "no model installed")
 	}
+	orMsg := "not configured (no openrouter_key set)"
+	orConfigured := true
+	if orErr != nil {
+		orMsg = orErr.Error()
+		orConfigured = !strings.Contains(orMsg, "not configured")
+	}
 	pMsg := "not reachable"
 	if pErr != nil {
 		pMsg = pErr.Error()
 	}
-	hint := "For reliable free operation: install Ollama (https://ollama.com), " +
-		"or switch to mode=provider with your own API key under System > Services > AI Helpdesk."
+	var hints []string
 	if ollamaInstalled {
-		hint = "For reliable free operation: pull a model (e.g. \"ollama pull llama3.1\"), " +
-			"or switch to mode=provider with your own API key under System > Services > AI Helpdesk."
+		hints = append(hints, "pull an Ollama model (e.g. \"ollama pull llama3.1\")")
+	} else {
+		hints = append(hints, "install Ollama (https://ollama.com)")
 	}
-	return fmt.Errorf("no free provider available -- Ollama: %s; Pollinations: %s. %s",
-		oMsg, pMsg, hint)
+	if !orConfigured {
+		hints = append(hints, "get a free API key at openrouter.ai and set openrouter_key "+
+			"(e.g. model "+DefaultOpenRouterModel+") under System > Services > AI Helpdesk")
+	}
+	hint := "For reliable free operation: " + strings.Join(hints, ", or ") +
+		", or switch to mode=provider with your own API key under System > Services > AI Helpdesk."
+	return fmt.Errorf("no free provider available -- Ollama: %s; OpenRouter: %s; Pollinations: %s. %s",
+		oMsg, orMsg, pMsg, hint)
 }
 
 type chatMsg struct {
@@ -62,11 +88,15 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 		if oErr == nil && a != "" {
 			return a, nil
 		}
+		a, orErr := freeOpenRouter(cfg, system, msgs)
+		if orErr == nil && a != "" {
+			return a, nil
+		}
 		a, pErr := freePollinations(system, msgs)
 		if pErr == nil && a != "" {
 			return a, nil
 		}
-		return "", freeModeError(oErr, pErr)
+		return "", freeModeError(oErr, orErr, pErr)
 	}
 
 	kind := cfg.Provider
@@ -238,6 +268,20 @@ func providerAnswer(cfg *Config, system string, msgs []chatMsg, emit tokenEmitte
 				return a, nil
 			}
 		}
+		var orErr error
+		if emit != nil {
+			var a string
+			a, orErr = freeOpenRouterStream(cfg, system, msgs, emit)
+			if orErr == nil && a != "" {
+				return a, nil
+			}
+		} else {
+			var a string
+			a, orErr = freeOpenRouter(cfg, system, msgs)
+			if orErr == nil && a != "" {
+				return a, nil
+			}
+		}
 		a, pErr := freePollinations(system, msgs)
 		if pErr == nil && a != "" {
 			if emit != nil {
@@ -245,7 +289,7 @@ func providerAnswer(cfg *Config, system string, msgs []chatMsg, emit tokenEmitte
 			}
 			return a, nil
 		}
-		return "", freeModeError(oErr, pErr)
+		return "", freeModeError(oErr, orErr, pErr)
 	}
 
 	kind := cfg.Provider
@@ -455,6 +499,64 @@ func freeOllama(cfg *Config, system string, msgs []chatMsg) (string, error) {
 		return "", err
 	}
 	return chat.Message.Content, nil
+}
+
+// openRouterModel returns the configured OpenRouter free-tier model, or the
+// built-in default (see DefaultOpenRouterModel for why it's overridable).
+func openRouterModel(cfg *Config) string {
+	if cfg.OpenRouterModel != "" {
+		return cfg.OpenRouterModel
+	}
+	return DefaultOpenRouterModel
+}
+
+// freeOpenRouter calls an OpenRouter ":free" model route (OpenAI-compatible
+// chat/completions). Unlike Ollama/Pollinations this leg needs an account:
+// it's skipped (distinct "not configured" error) when openrouter_key is
+// empty, so freeModeError can tell "didn't try" apart from "tried, failed".
+func freeOpenRouter(cfg *Config, system string, msgs []chatMsg) (string, error) {
+	if cfg.OpenRouterKey == "" {
+		return "", errors.New("not configured (no openrouter_key set)")
+	}
+	all := []chatMsg{{Role: "system", Content: system}}
+	all = append(all, msgs...)
+	body := map[string]any{"model": openRouterModel(cfg), "messages": all, "max_tokens": 1024}
+	hdr := map[string]string{"Authorization": "Bearer " + cfg.OpenRouterKey}
+	b, st, err := postJSON(&http.Client{}, "https://openrouter.ai/api/v1/chat/completions", body, hdr, 120*time.Second)
+	if err != nil {
+		return "", err
+	}
+	if st != http.StatusOK {
+		return "", fmt.Errorf("http %d: %s", st, briefErr(b))
+	}
+	var resp struct {
+		Choices []struct {
+			Message chatMsg `json:"message"`
+		} `json:"choices"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(b, &resp); err != nil {
+		return "", err
+	}
+	if len(resp.Choices) > 0 {
+		return resp.Choices[0].Message.Content, nil
+	}
+	if resp.Error.Message != "" {
+		return "", errors.New(resp.Error.Message)
+	}
+	return "", errors.New("empty provider response")
+}
+
+// freeOpenRouterStream mirrors freeOpenRouter but token-streams via SSE
+// (OpenRouter speaks the same stream:true/delta.content shape as OpenAI).
+func freeOpenRouterStream(cfg *Config, system string, msgs []chatMsg, emit tokenEmitter) (string, error) {
+	if cfg.OpenRouterKey == "" {
+		return "", errors.New("not configured (no openrouter_key set)")
+	}
+	return openaiSSEStream("https://openrouter.ai/api/v1/chat/completions",
+		openRouterModel(cfg), system, msgs, cfg.OpenRouterKey, emit)
 }
 
 // freePollinations uses the simple keyless GET endpoint (experimental).
