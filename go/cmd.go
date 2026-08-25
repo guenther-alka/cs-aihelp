@@ -119,6 +119,15 @@ func startCmd(args []string) {
 		fmt.Println("cs-aihelp already running on", cfg.Listen)
 		return
 	}
+	// mirror Serve()'s refusal here too: a non-loopback listen address
+	// without auth_token would otherwise only fail inside the detached
+	// process, where the error is invisible to the caller (Settings UI /
+	// autostart) -- surface it immediately instead of a silent no-op start.
+	if ip, _, err := net.SplitHostPort(cfg.Listen); err == nil &&
+		ip != "127.0.0.1" && ip != "::1" && ip != "localhost" && cfg.AuthToken == "" {
+		fmt.Fprintf(os.Stderr, "refusing to start %s without auth_token (security)\n", cfg.Listen)
+		os.Exit(2)
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cannot resolve executable:", err)

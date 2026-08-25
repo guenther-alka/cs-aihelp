@@ -148,6 +148,23 @@ sub my_action {
         $daemon_html = "<span style='color:#a00'><b>not installed</b></span> (see System &gt; CS Tools Download)";
     }
 
+    # ---- risk warning: exec (D2) + web research active at the same time ----
+    # Web research / live tool-use results are fed to the model as untrusted
+    # DATA; if exec_access != ro the model can turn its own answer into a
+    # proposed command. Combining both raises the prompt-injection blast
+    # radius noticeably, especially with exec_mode=auto (no human review).
+    my $exa = ai_trim($aicfg{exec_access} // 'ro');
+    my $res = ai_trim($aicfg{research}    // 'ddg');
+    if ($exa ne 'ro' && $res ne 'off') {
+        my $em = ai_trim($aicfg{exec_mode} // 'confirm');
+        print "<div style='color:#7a5b00;background:#fff6df;border:1px solid #e0c060;border-radius:4px;padding:6px 10px;display:inline-block;max-width:780px'>"
+            . "<b>Warning:</b> Exec access (<code>exec_access=$exa</code>) and web research (<code>research=$res</code>) "
+            . "are both active. Search results / live state reach the model as untrusted data; if the model turns that "
+            . "into a proposed command, it is executed" . ($em eq 'auto' ? " <b>without confirmation (exec_mode=auto)</b>" : " after your \"" . ai_esc($em) . "\" confirmation") . ". "
+            . "Consider <code>research=off</code> while <code>exec_access=exec/console</code>, or keep <code>exec_mode=confirm</code>."
+            . "</div><br><br>\n";
+    }
+
     # ---- Local AI (Ollama) status ----
     my ($ollama_models, $ollama_ok) = ai_ollama_models();
     my $ollama_ver   = ai_ollama_version();

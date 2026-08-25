@@ -9,7 +9,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -284,5 +286,28 @@ func (c *Config) Save() error {
 	fw("tls_cert", c.TLSCert)
 	fw("tls_key", c.TLSKey)
 	fw("cors_origin", c.CORSOrigin)
-	return os.WriteFile(c.path, []byte(b.String()), 0600)
+	if err := os.WriteFile(c.path, []byte(b.String()), 0600); err != nil {
+		return err
+	}
+	lockdownConfigFile(c.path)
+	return nil
+}
+
+// lockdownConfigFile hardens permissions on the config file (holds api_key/
+// auth_token) beyond the 0600 mode above, which Windows mostly ignores
+// (no POSIX permission bits). On Windows it disables ACL inheritance and
+// grants only the running account + built-in Administrators (SID
+// S-1-5-32-544, language-independent) via icacls. Best-effort: failures
+// (icacls missing/blocked) are silently ignored, the config is still usable.
+// No-op on Unix (chmod 0600 above already applies there).
+func lockdownConfigFile(path string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	acct := os.Getenv("USERDOMAIN") + "\\" + os.Getenv("USERNAME")
+	if acct == "\\" {
+		return
+	}
+	cmd := exec.Command("icacls", path, "/inheritance:r", "/grant:r", acct+":F", "*S-1-5-32-544:F")
+	_ = cmd.Run()
 }
