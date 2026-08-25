@@ -1434,6 +1434,25 @@ function _aiResume(logId){
   .catch(function(e){ _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
 }
 function _aiFocus(inpId){ var i=document.getElementById(inpId); if(i){ i.focus(); } }
+// The popup is positioned via right/bottom (see #aihelp_box CSS), but the
+// shared dragStart()/dragGo() (web-gui.js) read/write style.left/style.top
+// only -- on the very first drag those are unset -> parseInt() -> NaN -> 0,
+// so the box jumped to the top-left corner instead of following the cursor.
+// Normalize right/bottom -> left/top (from the box's actual rendered
+// position) once, before the shared drag handler ever runs, mirroring the
+// same left/top-normalization dragStart() already does for transform-
+// centered dialogs. Idempotent: a later drag already has style.left set.
+function _aiPopupDragStart(ev){
+  var el=document.getElementById('aihelp_box');
+  if(el && (!el.style.left || el.style.left==='')){
+    var r=el.getBoundingClientRect();
+    el.style.left=r.left+'px';
+    el.style.top=r.top+'px';
+    el.style.right='auto';
+    el.style.bottom='auto';
+  }
+  return dragStart(ev,'aihelp_box');
+}
 </script>
 EoJS
     my $logid = ($widget eq 'popup') ? 'aihelp_p_log' : 'aihelp_log';
@@ -1596,7 +1615,7 @@ EoP
     print "<button id=\"aihelp_btn\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
 <div id="aihelp_box">
-  <div id="aihelp_p_hdr" onmousedown="return dragStart(event,'aihelp_box')"><span>mini AI Helpdesk</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
+  <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Click 'Ask AI' to show/hide widget"><span>Click 'Ask AI' to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
