@@ -1588,9 +1588,15 @@ sub ai_popup {
     my $ah = ai_trim($aicfg{widget_answer_height} // '');
     $aheight = $ah if $ah =~ /^\d+$/ && $ah >= 100 && $ah <= 1200;
 
+    # widget_input_lines=1 (default): single-line input, no Ask button --
+    # Enter submits directly (like a search box). widget_input_lines>1:
+    # textarea, Enter inserts a newline (like the full-screen page), so the
+    # Ask button stays as the only way to send.
     my $q_ctl = ($ilines == 1)
-        ? "<input id=\"aihelp_p_q\" type=\"text\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\">"
+        ? "<input id=\"aihelp_p_q\" type=\"text\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();_aiAsk('aihelp_p_log','aihelp_p_q');}\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\">"
         : "<textarea id=\"aihelp_p_q\" rows=\"$ilines\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\"></textarea>";
+    my $ask_btn = ($ilines == 1) ? '' :
+        "<button id=\"aihelp_p_btn\" onclick=\"_aiAsk('aihelp_p_log','aihelp_p_q','aihelp_p_btn')\" style=\"padding:5px 10px\">Ask</button>\n      ";
 
     print <<"EoP";
 <style>
@@ -1618,17 +1624,14 @@ EoP
   <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Click 'Ask AI' to show/hide widget"><span>Click 'Ask AI' to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+    $q_ctl
+    <div style="margin-top:4px;display:flex;align-items:center;justify-content:flex-end;gap:6px">
       <span style="font-size:11px;color:#888">Provider:</span>
       <select id="aihelp_p_provider" style="font-size:11px">
         <option value="mode1">mode1</option>
         <option value="mode2">mode2</option>
       </select>
-    </div>
-    $q_ctl
-    <div style="margin-top:4px;text-align:right">
-      <button id="aihelp_p_btn" onclick="_aiAsk('aihelp_p_log','aihelp_p_q','aihelp_p_btn')" style="padding:5px 10px">Ask</button>
-      <button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
+      $ask_btn<button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
     </div>
   </div>
 </div>

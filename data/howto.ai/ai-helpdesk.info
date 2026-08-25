@@ -125,10 +125,13 @@ COMMUNICATION / UX
   saved conversation of the member), New (start fresh). Enter inserts a
   newline; sending happens only via the Ask button (or the quick-question
   buttons). Quick questions, copy button, elapsed-time indicator.
-- Floating popup "mini AI Helpdesk" (call &ai_popup(); from any action.pl):
-  draggable, [x] closes it, provider select mode1|mode2 before Ask/New,
-  read-only (no exec); sends the current menu path (l1/l2/l3) + member as
-  context (context-sensitive help).
+- Floating popup (call &ai_popup(); from any action.pl): draggable (title
+  bar shows a "click to show/hide" hint), [x] closes it, provider select
+  mode1|mode2 placed right before New, read-only (no exec); sends the
+  current menu path (l1/l2/l3) + member as context (context-sensitive help).
+  widget_input_lines=1 (default): single-line input, no Ask button -- Enter
+  submits directly. widget_input_lines>1: textarea, Enter inserts a newline
+  (like the full-screen page), Ask button stays as the way to send.
 - P2 architecture (DONE): browser JS talks to cs-aihelp.pl (session check +
   read-only live_state + menu context), which PROXIES to the Go daemon over
   loopback (HTTPS, webserver cert). The daemon does RAG (in-memory index),
