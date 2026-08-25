@@ -17,6 +17,35 @@ import (
 	"time"
 )
 
+// freeModeError builds a specific, actionable error for mode=free when both
+// fallback legs (local Ollama, Pollinations) failed -- instead of one generic
+// message, it reports what actually happened with each so the user (and the
+// widget) can tell "Ollama not installed" apart from "Pollinations rejected
+// the request" (e.g. their free anonymous tier changed / returns 402).
+func freeModeError(oErr, pErr error) error {
+	oMsg := "nicht erreichbar (kein lokaler Ollama-Dienst gefunden)"
+	ollamaInstalled := false
+	if oErr != nil {
+		oMsg = oErr.Error()
+		// ollamaProbeError's "no model pulled" message means the service
+		// itself IS installed and running -- don't tell the user to install
+		// it again, tell them to pull a model instead.
+		ollamaInstalled = strings.Contains(oMsg, "kein Modell installiert")
+	}
+	pMsg := "nicht erreichbar"
+	if pErr != nil {
+		pMsg = pErr.Error()
+	}
+	hint := "Fuer zuverlaessigen Free-Betrieb: Ollama installieren (https://ollama.com) " +
+		"oder unter System > Services > AI Helpdesk auf mode=provider mit eigenem API-Key umstellen."
+	if ollamaInstalled {
+		hint = "Fuer zuverlaessigen Free-Betrieb: ein Modell laden (z.B. \"ollama pull llama3.1\") " +
+			"oder unter System > Services > AI Helpdesk auf mode=provider mit eigenem API-Key umstellen."
+	}
+	return fmt.Errorf("kein kostenloser Provider erreichbar -- Ollama: %s; Pollinations: %s. %s",
+		oMsg, pMsg, hint)
+}
+
 type chatMsg struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -29,13 +58,15 @@ type tokenEmitter func(string) error
 // the answer text. cfg.Mode must be "free" or "provider".
 func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 	if cfg.Mode == "free" {
-		if a, err := freeOllama(cfg, system, msgs); err == nil && a != "" {
+		a, oErr := freeOllama(cfg, system, msgs)
+		if oErr == nil && a != "" {
 			return a, nil
 		}
-		if a, err := freePollinations(system, msgs); err == nil && a != "" {
+		a, pErr := freePollinations(system, msgs)
+		if pErr == nil && a != "" {
 			return a, nil
 		}
-		return "", errors.New("kein kostenloser Provider erreichbar (Ollama lokal nicht gefunden, Pollinations nicht verfuegbar). Fuer zuverlaessigen Free-Betrieb: Ollama installieren (curl -fsSL https://ollama.com/install.sh | sh)")
+		return "", freeModeError(oErr, pErr)
 	}
 
 	kind := cfg.Provider
@@ -135,25 +166,30 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 
 // ollamaProbeCache -- K1: cache the local Ollama probe result for 30s so
 // repeated free-mode questions don't wait on a dead 2s /api/tags probe.
+// "reachable" and "has models" are tracked separately (see ollamaProbe) so
+// callers can tell "service down" apart from "service up, no models pulled"
+// -- these need different error text and a different fix from the user.
 var ollamaProbeCache struct {
 	sync.Mutex
-	ok     bool
-	models []string
-	until  time.Time
+	reachable bool
+	models    []string
+	until     time.Time
 }
 
-// ollamaProbe returns (models, reachable), probing at most once per 30s.
+// ollamaProbe returns (models, reachable) -- reachable means the Ollama HTTP
+// API answered /api/tags with 200 OK, regardless of whether any model is
+// installed. Probes at most once per 30s.
 func ollamaProbe(base string) ([]string, bool) {
 	ollamaProbeCache.Lock()
 	defer ollamaProbeCache.Unlock()
 	if time.Now().Before(ollamaProbeCache.until) {
-		return ollamaProbeCache.models, ollamaProbeCache.ok
+		return ollamaProbeCache.models, ollamaProbeCache.reachable
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(base + "/api/tags")
-	ok := err == nil && resp.StatusCode == http.StatusOK
+	reachable := err == nil && resp.StatusCode == http.StatusOK
 	var models []string
-	if ok {
+	if reachable {
 		defer resp.Body.Close()
 		var tags struct {
 			Models []struct{ Name string `json:"name"` } `json:"models"`
@@ -163,12 +199,23 @@ func ollamaProbe(base string) ([]string, bool) {
 				models = append(models, m.Name)
 			}
 		}
-		ok = len(models) > 0
 	}
-	ollamaProbeCache.ok = ok
+	ollamaProbeCache.reachable = reachable
 	ollamaProbeCache.models = models
 	ollamaProbeCache.until = time.Now().Add(30 * time.Second)
-	return models, ok
+	return models, reachable
+}
+
+// ollamaProbeError turns an ollamaProbe() result into a specific error --
+// "service down" and "service up, no model pulled" need different fixes.
+func ollamaProbeError(reachable bool, models []string) error {
+	if !reachable {
+		return errors.New("nicht erreichbar (kein lokaler Ollama-Dienst gefunden)")
+	}
+	if len(models) == 0 {
+		return errors.New("laeuft, aber kein Modell installiert (ollama pull llama3.1)")
+	}
+	return nil
 }
 
 // providerAnswer resolves the configured provider and returns the answer.
@@ -177,22 +224,28 @@ func ollamaProbe(base string) ([]string, bool) {
 // whole answer is emitted once).
 func providerAnswer(cfg *Config, system string, msgs []chatMsg, emit tokenEmitter) (string, error) {
 	if cfg.Mode == "free" {
+		var oErr error
 		if emit != nil {
-			if a, err := freeOllamaStream(cfg, system, msgs, emit); err == nil && a != "" {
+			var a string
+			a, oErr = freeOllamaStream(cfg, system, msgs, emit)
+			if oErr == nil && a != "" {
 				return a, nil
 			}
 		} else {
-			if a, err := freeOllama(cfg, system, msgs); err == nil && a != "" {
+			var a string
+			a, oErr = freeOllama(cfg, system, msgs)
+			if oErr == nil && a != "" {
 				return a, nil
 			}
 		}
-		if a, err := freePollinations(system, msgs); err == nil && a != "" {
+		a, pErr := freePollinations(system, msgs)
+		if pErr == nil && a != "" {
 			if emit != nil {
 				emit(a)
 			}
 			return a, nil
 		}
-		return "", errors.New("kein kostenloser Provider erreichbar (Ollama lokal nicht gefunden, Pollinations nicht verfuegbar). Fuer zuverlaessigen Free-Betrieb: Ollama installieren (curl -fsSL https://ollama.com/install.sh | sh)")
+		return "", freeModeError(oErr, pErr)
 	}
 
 	kind := cfg.Provider
@@ -348,9 +401,9 @@ func freeOllamaStream(cfg *Config, system string, msgs []chatMsg, emit tokenEmit
 	if !safeURL(base, true, cfg.SSRFAllowPrivate) {
 		return "", errors.New("ollama endpoint not allowed (SSRF guard)")
 	}
-	models, ok := ollamaProbe(base)
-	if !ok || len(models) == 0 {
-		return "", errors.New("ollama not reachable")
+	models, reachable := ollamaProbe(base)
+	if err := ollamaProbeError(reachable, models); err != nil {
+		return "", err
 	}
 	model := ""
 	for _, m := range models {
@@ -374,9 +427,9 @@ func freeOllama(cfg *Config, system string, msgs []chatMsg) (string, error) {
 	if !safeURL(base, true, cfg.SSRFAllowPrivate) {
 		return "", errors.New("ollama endpoint not allowed (SSRF guard)")
 	}
-	models, ok := ollamaProbe(base)
-	if !ok || len(models) == 0 {
-		return "", errors.New("ollama not reachable")
+	models, reachable := ollamaProbe(base)
+	if err := ollamaProbeError(reachable, models); err != nil {
+		return "", err
 	}
 	model := ""
 	for _, m := range models {

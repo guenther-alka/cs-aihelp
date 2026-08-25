@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.2 (2026-08-25) — meaningful free-mode errors + popup fixes
+
+- **`mode=free` failure now reports what actually happened with each fallback
+  leg** instead of one generic "kein kostenloser Provider erreichbar" message:
+  the widget/UI now shows e.g. "Ollama: nicht erreichbar ...; Pollinations:
+  http 402" so a "no local Ollama" case is distinguishable from Pollinations'
+  free anonymous tier rejecting the request (their legacy `text.pollinations.ai`
+  endpoint has started returning `402 Payment Required` for anonymous/keyless
+  requests on some networks -- an upstream change, not a bug here). The error
+  also points at the fix: install Ollama, or switch to `mode=provider` with an
+  API key under System > Services > AI Helpdesk.
+- **Popup widget z-index raised to `2147483000`** (was `9997`/`9998`) so it no
+  longer renders behind the top menu bar in some layouts.
+
 ## v1.1.1 (2026-08-25) — security hardening (audit follow-up)
 
 **Fixes for weaknesses found in a usability/function/security review of
