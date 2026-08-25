@@ -23,26 +23,26 @@ import (
 // widget) can tell "Ollama not installed" apart from "Pollinations rejected
 // the request" (e.g. their free anonymous tier changed / returns 402).
 func freeModeError(oErr, pErr error) error {
-	oMsg := "nicht erreichbar (kein lokaler Ollama-Dienst gefunden)"
+	oMsg := "not reachable (no local Ollama service found)"
 	ollamaInstalled := false
 	if oErr != nil {
 		oMsg = oErr.Error()
 		// ollamaProbeError's "no model pulled" message means the service
 		// itself IS installed and running -- don't tell the user to install
 		// it again, tell them to pull a model instead.
-		ollamaInstalled = strings.Contains(oMsg, "kein Modell installiert")
+		ollamaInstalled = strings.Contains(oMsg, "no model installed")
 	}
-	pMsg := "nicht erreichbar"
+	pMsg := "not reachable"
 	if pErr != nil {
 		pMsg = pErr.Error()
 	}
-	hint := "Fuer zuverlaessigen Free-Betrieb: Ollama installieren (https://ollama.com) " +
-		"oder unter System > Services > AI Helpdesk auf mode=provider mit eigenem API-Key umstellen."
+	hint := "For reliable free operation: install Ollama (https://ollama.com), " +
+		"or switch to mode=provider with your own API key under System > Services > AI Helpdesk."
 	if ollamaInstalled {
-		hint = "Fuer zuverlaessigen Free-Betrieb: ein Modell laden (z.B. \"ollama pull llama3.1\") " +
-			"oder unter System > Services > AI Helpdesk auf mode=provider mit eigenem API-Key umstellen."
+		hint = "For reliable free operation: pull a model (e.g. \"ollama pull llama3.1\"), " +
+			"or switch to mode=provider with your own API key under System > Services > AI Helpdesk."
 	}
-	return fmt.Errorf("kein kostenloser Provider erreichbar -- Ollama: %s; Pollinations: %s. %s",
+	return fmt.Errorf("no free provider available -- Ollama: %s; Pollinations: %s. %s",
 		oMsg, pMsg, hint)
 }
 
@@ -210,10 +210,10 @@ func ollamaProbe(base string) ([]string, bool) {
 // "service down" and "service up, no model pulled" need different fixes.
 func ollamaProbeError(reachable bool, models []string) error {
 	if !reachable {
-		return errors.New("nicht erreichbar (kein lokaler Ollama-Dienst gefunden)")
+		return errors.New("not reachable (no local Ollama service found)")
 	}
 	if len(models) == 0 {
-		return errors.New("laeuft, aber kein Modell installiert (ollama pull llama3.1)")
+		return errors.New("running, but no model installed (ollama pull llama3.1)")
 	}
 	return nil
 }

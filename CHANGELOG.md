@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.3 (2026-08-25) — free-mode error text in English
+
+- **`freeModeError()` / `ollamaProbeError()` messages translated from German
+  to English** (`no free provider available -- Ollama: ...; Pollinations:
+  ...`) -- the widget/UI is English, so v1.1.2's detailed error text (added
+  the same day) should have been English from the start rather than German.
+  No change to the logic, only to the message text and the internal
+  substring match used to tell "Ollama unreachable" apart from "Ollama up,
+  no model pulled" (now matches on "no model installed").
+
 ## v1.1.2 (2026-08-25) — meaningful free-mode errors + popup fixes
 
 - **`mode=free` failure now reports what actually happened with each fallback
