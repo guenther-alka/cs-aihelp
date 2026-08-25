@@ -108,6 +108,7 @@ sub my_action {
     my $resolved = ai_resolve(%aicfg);
     my $ep_html  = $resolved ? "<span style='font-family:monospace;font-size:12px'>" . ai_esc($resolved->{endpoint} // '') . "</span>"
                             : '<i>no endpoint (off)</i>';
+    my $listen_html = "<span style='font-family:monospace;font-size:12px'>" . ai_esc(ai_trim($aicfg{listen} // '127.0.0.1:45555')) . "</span>";
 
     # daemon binary status (cs-aihelp is NOT bundled; downloaded via
     # System > CS Tools Download -- start/stop happens here).
@@ -138,12 +139,15 @@ sub my_action {
     }
 
     my $st_rows  = "<b>Mode</b>\t$mode_html\n"
-                 . "<b>Endpoint</b>\t$ep_html\n"
+                 . "<b>AI endpoint</b>\t$ep_html\n"
                  . "<b>Model</b>\t" . ($resolved ? ai_esc($resolved->{model} // '') : '') . "\n"
                  . "<b>Daemon</b>\t$daemon_html\n"
+                 . "<b>Daemon listen</b>\t$listen_html\n"
                  . "<b>Config</b>\t" . ai_esc(ai_cfg_path()) . "\n";
     print &list2table($st_rows, "160px,560px", "", "", "n");
-    print "<br>\n";
+    print "<br><span style='color:#888;font-size:11px'>"
+        . "AI endpoint = the LLM the daemon talks to (Ollama on 127.0.0.1:11434 for mode=free). "
+        . "Daemon listen = the Go service address (cs-aihelp).</span><br><br>\n";
 
     # --------------------------------------------------------------- form
     my $sel = sub {
