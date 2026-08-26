@@ -1,5 +1,32 @@
 # Changelog
 
+## (2026-08-26, Perl/JS/docs only -- no Go daemon change, no new binary release) — full-screen layout, act vs console docs
+
+- **Full-screen AI Helpdesk layout**: the toolbar (Provider/Mode/Actions
+  selects + Ask/Abort/Resume/New buttons) moved to the very bottom of the
+  page, below the question textarea. Final top-to-bottom order: answer/log
+  (top) -> question (middle) -> toolbar (bottom). Two Gea-driven layout
+  iterations landed today: log moved above the question box first
+  (`cs_26.08.26_17`), then the toolbar moved below the question box
+  (`cs_26.08.26_18`). The floating popup widget (`ai_popup()`) is
+  unaffected -- only the full-screen page (`ai_chat_page()`) changed.
+- **Docs: precise "act" vs "console" exec semantics** clarified in
+  `data/howto.ai/ai-helpdesk.info` (Security Model section), read by the
+  Go daemon's RAG so the AI itself can now explain this correctly if
+  asked: `exec_access=exec` ("act" mode, the GUI's "act (exec)" option)
+  is an ALLOW-LIST -- a proposed command only runs if its class is
+  explicitly present in `exec_allow`, via the normal ask/propose/confirm
+  flow. `exec_access=console` ("console" mode) is DENY-LIST ONLY --
+  `exec_allow` is bypassed entirely and any command may run except one
+  matching `exec_deny`, which always applies in both modes. No code
+  behavior changed -- this was already enforced correctly by
+  `ai_exec_validate()`; only the documentation was imprecise.
+- **testbase fix**: `C:\opt\testbase\ai_compile_check.pl` still referenced
+  the old `10_System/03_CS_Tools` path (fixed everywhere else in commit
+  `4dbe57f`, but testbase is sync.ps1's SOURCE for test files, so the next
+  `sync.ps1` run silently reverted the repo's copy back to the stale path
+  -- now fixed at the source so it can't regress again).
+
 ## (2026-08-26, Perl/JS only -- no Go daemon change, no new binary release) — KISS chat history auto-load
 
 - **The chat widget and full-screen chat now auto-load the last open

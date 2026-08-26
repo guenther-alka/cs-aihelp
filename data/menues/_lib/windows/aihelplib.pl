@@ -2045,14 +2045,18 @@ sub ai_chat_page {
     print <<"EoH";
 <div id="aihelp_page" style="width:100%;height:calc(100vh - 150px);min-height:520px;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px">
   <div style="flex:1;display:flex;flex-direction:column;min-height:0">
-    <div style="flex:2;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff">
+    <!-- cs_26.08.26_18 (Gea: "Toolbar bitte unter den fragebereich ganz
+         unten") -- supersedes cs_26.08.26_17: the toolbar (Provider/Mode/
+         Actions selects + Ask/Abort/Resume/New buttons) moved from between
+         log and question down to the very bottom of the page, below the
+         question textarea. Final top-to-bottom order: log (flex:3, top) ->
+         question (flex:2, middle) -> toolbar (bottom). -->
+    <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff"></div>
+    <div style="flex:2;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff;margin:6px 0">
       <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask) -- Example: $quick</div>
       <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent" placeholder="Question ..."></textarea>
     </div>
-    <!-- cs_26.08.26_9 (Gea: "die Zeile AI Helpdesk .. [Resume] [New]
-         zwischen Frage und Antwortbereich setzen") -- toolbar moved from
-         above the question box to here, between question and answer. -->
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6;margin:6px 0">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
       <b>AI Helpdesk -- $member</b>
       <span style="color:#888;font-size:12px">Provider:</span>
       <select id="aihelp_provider" style="font-size:12px">
@@ -2075,7 +2079,6 @@ sub ai_chat_page {
       <button onclick="_aiResume('aihelp_log')" style="padding:4px 10px" title="Load the last saved conversation">Resume</button>
       <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
     </div>
-    <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff;margin-top:0"></div>
   </div>
 </div>
 <script>
