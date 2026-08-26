@@ -2045,18 +2045,18 @@ sub ai_chat_page {
     print <<"EoH";
 <div id="aihelp_page" style="width:100%;height:calc(100vh - 150px);min-height:520px;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px">
   <div style="flex:1;display:flex;flex-direction:column;min-height:0">
-    <!-- cs_26.08.26_18 (Gea: "Toolbar bitte unter den fragebereich ganz
-         unten") -- supersedes cs_26.08.26_17: the toolbar (Provider/Mode/
-         Actions selects + Ask/Abort/Resume/New buttons) moved from between
-         log and question down to the very bottom of the page, below the
-         question textarea. Final top-to-bottom order: log (flex:3, top) ->
-         question (flex:2, middle) -> toolbar (bottom). -->
+    <!-- cs_26.08.26_19 (Gea: "Toolbar soll immer unten sichtbar sein
+         (feste Hoehe). Ask und Answer Bereich teilen sich den Rest 1:3")
+         -- supersedes cs_26.08.26_17/_18: the toolbar now has flex:"0 0
+         auto" so it never grows/shrinks and always stays pinned at the
+         bottom with a fixed height; log:question now split 3:1 (log
+         flex:3, question flex:1) instead of the earlier 3:2. -->
     <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff"></div>
-    <div style="flex:2;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff;margin:6px 0">
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff;margin:6px 0">
       <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask) -- Example: $quick</div>
       <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent" placeholder="Question ..."></textarea>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
+    <div style="flex:0 0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
       <b>AI Helpdesk -- $member</b>
       <span style="color:#888;font-size:12px">Provider:</span>
       <select id="aihelp_provider" style="font-size:12px">
