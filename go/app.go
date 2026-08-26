@@ -108,6 +108,22 @@ func parseAction(s string) (string, *Action) {
 // as something to read and reason over yourself -- propose the next
 // command or give the final answer, don't hand it back to the user to
 // interpret.
+//
+// cs_26.08.26_21 (Gea: "wenn ich sage, installiere smartmontools, klappt
+// das falls interaktiv rueckfragen kommen?") -- answer found while
+// investigating: no. server.pl's general command dispatcher runs
+// arbitrary commands via an UNTIMED backtick/cmd.exe path (only curl gets
+// a timed IPC::Run array-exec, per a documented earlier incident in
+// data/howto.ai/behaviours.info Gotcha #15 where that same untimed path
+// hung server.pl's single serial request queue COMPLETELY and needed an
+// admin-rights process-tree kill to recover). An install command that
+// blocks on a Y/n or license prompt would hit exactly that: the AI
+// Helpdesk's own 120s socket timeout fires client-side, but the spawned
+// process keeps blocking server.pl for every other request on that
+// member until someone kills it by hand. Fixing the dispatcher itself
+// (a general per-command timeout) is a bigger, separate change; the
+// immediate mitigation here is to stop the model from ever proposing a
+// command that CAN prompt in the first place.
 func execHintFor(cfg *Config) string {
 	const actAndEvaluate = "You have DIRECT command execution available in this session -- you " +
 		"are not limited to describing what the user should type. When the user asks to DO " +
@@ -118,7 +134,17 @@ func execHintFor(cfg *Config) string {
 		"executes it and returns the output to you as DATA on your next turn -- read and " +
 		"evaluate that output yourself, then either propose the next command if more steps are " +
 		"needed or give the final answer once you have enough information. Only skip the ACTION " +
-		"block for purely informational questions that need no system change or lookup. "
+		"block for purely informational questions that need no system change or lookup. " +
+		"CRITICAL: commands run with no interactive terminal attached and no per-command " +
+		"timeout -- a command that can prompt for input (a Y/n confirmation, a license prompt, a " +
+		"GUI installer/wizard) will hang forever and block the whole backend for this system, not " +
+		"just fail. NEVER propose an installer/package command without its non-interactive/silent " +
+		"flag: e.g. \"apt-get install -y\" with DEBIAN_FRONTEND=noninteractive, " +
+		"\"winget install --silent --accept-package-agreements --accept-source-agreements\", " +
+		"\"choco install -y\", \"yum/dnf install -y\", \"pkg install -y\", \"msiexec /quiet\". " +
+		"Prefer a read-only check first (is it already installed/running?) before proposing an " +
+		"install. If a command has no non-interactive form, explain that to the user instead of " +
+		"proposing it. "
 	switch cfg.ExecAccess {
 	case "exec":
 		return actAndEvaluate + "Allowed command classes: " + strings.Join(cfg.ExecAllow, ", ")

@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.2.2 (2026-08-26) — exec/console: never propose an interactive install
+
+- **Root cause found**: `server.pl`'s general command dispatcher runs
+  arbitrary AI-proposed commands via an UNTIMED backtick/cmd.exe path (no
+  per-command timeout at all -- only `curl` gets a timed `IPC::Run`
+  array-exec, per a documented earlier incident in
+  `data/howto.ai/behaviours.info` Gotcha #15, where that same untimed
+  path hung `server.pl`'s single serial request queue COMPLETELY and
+  needed an admin-rights process-tree kill to recover). Question that
+  surfaced this: "wenn ich sage, installiere smartmontools, klappt das
+  falls interaktiv rueckfragen kommen?" -- answer: no, a command that
+  blocks on a Y/n or license prompt hangs forever with nothing to answer
+  it, and blocks every other request for that member, not just the one
+  install.
+- **Mitigation (prompt-side, both `execHintFor()` in `go/app.go` and the
+  Perl mirror `ai_exec_hint()`)**: the model is now told explicitly that
+  commands run with no interactive terminal and no timeout, and must
+  NEVER propose an installer/package command without its
+  non-interactive/silent flag (`apt-get install -y` +
+  `DEBIAN_FRONTEND=noninteractive`, `winget install --silent
+  --accept-package-agreements --accept-source-agreements`, `choco
+  install -y`, `yum/dnf install -y`, `pkg install -y`, `msiexec /quiet`),
+  should check first whether the thing is already installed/running
+  before proposing an install, and should explain rather than propose
+  when a command has no non-interactive form.
+- **Not fixed here (separate, bigger change)**: the dispatcher itself
+  still has no general per-command timeout for non-curl commands. This
+  release only stops the model from walking into that hole on purpose;
+  a hung backend from some OTHER cause (or a model ignoring the
+  instruction) is still possible. A real fix would need a general timeout
+  wrapper in `server.pl`'s command dispatcher, out of scope today.
+
 ## v1.2.1 (2026-08-26) — exec/console: act, don't just explain
 
 - **Stronger exec-mode system-prompt instruction**: in `exec_access=exec`
