@@ -2103,54 +2103,73 @@ sub ai_chat_page {
     my $quick = join(' | ', map { ai_esc($_) } @quick);
 
     print <<"EoH";
-<div id="aihelp_page" style="width:100%;height:calc(100vh - 150px);min-height:0;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px">
-  <div style="flex:1;display:flex;flex-direction:column;min-height:0">
-    <!-- cs_26.08.26_22 (Gea: "frage und antwort (je mit laufbalken) und
-         fester height fuer tools damit man alles inkl napp-it menues
-         sehen kann") -- supersedes cs_26.08.26_17/_18/_19: dropped the
-         outer page's min-height:520px, which could force the whole page
-         to overflow/scroll on short viewports and push the napp-it menu
-         bar out of view. Without that floor the flex layout always fits
-         inside calc(100vh - 150px): log and question keep shrinking
-         (each already scrolls internally -- log via overflow-y:auto, the
-         textarea natively) while the toolbar (flex:0 0 auto, never
-         shrinks) stays fully visible at a fixed height. Log:question
-         stays 3:1. -->
-    <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff"></div>
-    <div style="flex:1;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff;margin:6px 0">
-      <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask) -- Example: $quick</div>
-      <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent;overflow-y:auto" placeholder="Question ..."></textarea>
-    </div>
-    <div style="flex:0 0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
-      <b>AI Helpdesk -- $member</b>
-      <span style="color:#888;font-size:12px">Provider:</span>
-      <select id="aihelp_provider" style="font-size:12px">
-        <option value="mode1">mode1</option>
-        <option value="mode2">mode2</option>
-      </select>
-      <span style="color:#888;font-size:12px">Mode:</span>
-      <select id="aihelp_amode" style="font-size:12px">
-        <option value="plan">plan (ro)</option>
-        <option value="act">act (exec)</option>
-      </select>
-      <span style="color:#888;font-size:12px">Actions:</span>
-      <select id="aihelp_emode" style="font-size:12px">
-        <option value="propose"$propose_sel>propose</option>
-        <option value="confirm"$confirm_sel>confirm</option>
-        <option value="auto"$auto_sel>auto</option>
-      </select>
-      <button onclick="_aiAsk('aihelp_log','aihelp_q')" style="padding:4px 10px">Ask</button>
-      <button onclick="_aiAbort()" style="padding:4px 10px" title="Stop the agentic loop">Abort</button>
-      <button onclick="_aiResume('aihelp_log')" style="padding:4px 10px" title="Load the last saved conversation">Resume</button>
-      <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
-    </div>
+<div id="aihelp_page" style="width:100%;min-height:0;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px;overflow:hidden">
+  <!-- cs_26.08.26_24 (Gea: "sollte nach reload die ganze seite inkl
+       toolbar zeigen mit scrollbar im antwort bereich") -- supersedes
+       cs_26.08.26_22's static height:calc(100vh - 150px): that fixed
+       150px guess didn't match every browser/header height, so on
+       reload the flex box was taller than the actual remaining
+       viewport, the BROWSER page itself scrolled, and the toolbar
+       (last flex child) ended up below the fold -- invisible until the
+       user scrolled the whole page. Fix: no more CSS-only guess. JS
+       (_aiFitPage below) measures this div's real top offset after
+       render and sets an exact pixel height = remaining viewport, on
+       load AND on resize. With an exact height the flex children never
+       need more room than they have: only #aihelp_log scrolls
+       internally (overflow-y:auto), the question box scrolls its own
+       textarea, and the toolbar (flex:0 0 auto) is always fully
+       visible at the bottom -- the napp-it menu above never gets
+       pushed out and the page itself never scrolls. The former
+       standalone "Mode: ..." info paragraph (previously printed AFTER
+       this div, so its height wasn't counted at all) is now folded
+       into the toolbar row itself so the whole visible page is one
+       measured flex box. -->
+  <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff"></div>
+  <div style="flex:1;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff;margin:6px 0">
+    <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask) -- Example: $quick</div>
+    <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent;overflow-y:auto" placeholder="Question ..."></textarea>
+  </div>
+  <div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
+    <b>AI Helpdesk -- $member</b>
+    <span style="color:#888;font-size:12px">Provider:</span>
+    <select id="aihelp_provider" style="font-size:12px">
+      <option value="mode1">mode1</option>
+      <option value="mode2">mode2</option>
+    </select>
+    <span style="color:#888;font-size:12px">Mode:</span>
+    <select id="aihelp_amode" style="font-size:12px">
+      <option value="plan">plan (ro)</option>
+      <option value="act">act (exec)</option>
+    </select>
+    <span style="color:#888;font-size:12px">Actions:</span>
+    <select id="aihelp_emode" style="font-size:12px">
+      <option value="propose"$propose_sel>propose</option>
+      <option value="confirm"$confirm_sel>confirm</option>
+      <option value="auto"$auto_sel>auto</option>
+    </select>
+    <button onclick="_aiAsk('aihelp_log','aihelp_q')" style="padding:4px 10px">Ask</button>
+    <button onclick="_aiAbort()" style="padding:4px 10px" title="Stop the agentic loop">Abort</button>
+    <button onclick="_aiResume('aihelp_log')" style="padding:4px 10px" title="Load the last saved conversation">Resume</button>
+    <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
+    <span style="color:#888;font-size:11px;margin-left:auto;white-space:normal">Mode: $mode_badge &nbsp;|&nbsp; exec_deny always applies. Answers use the napp-it docs (data/howto.ai).</span>
   </div>
 </div>
 <script>
   _aiFocus('aihelp_q');
+  (function(){
+    function _aiFitPage(){
+      var el = document.getElementById('aihelp_page');
+      if (!el) return;
+      var top = el.getBoundingClientRect().top;
+      var h = window.innerHeight - top - 8;
+      if (h < 250) h = 250;
+      el.style.height = h + 'px';
+    }
+    _aiFitPage();
+    window.addEventListener('resize', _aiFitPage);
+  })();
 </script>
 EoH
-    print "<p style='color:#888;font-size:11px'>Mode: $mode_badge &nbsp; &nbsp; provider = mode1/mode2, mode = plan (ro) / act (exec) - per question &nbsp; &nbsp; exec_deny is always applied. Answers are based on the napp-it documentation (data/howto.ai).</p>\n";
     print ai_chat_js('page', $member, $l1, $l2, $l3);
     # demonstrate the context-sensitive floating popup on this page as well
     ai_popup($member, $l1, $l2, $l3);
