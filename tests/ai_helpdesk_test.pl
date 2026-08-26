@@ -282,7 +282,8 @@ my %cfg_exec = ( %cfg, exec_access => 'exec', exec_allow => 'zfs,find,curl',
     exec_deny => 'zfs destroy|zpool destroy|rm -rf|dd |mkfs|format' );
 ai_cfg_write(%cfg_exec);
 ok(ai_exec_validate('zfs snapshot tank/data@auto') eq '', 'exec: zfs snapshot allowed');
-ok(ai_exec_validate('find /tank -name "*.log"') eq '', 'exec: find allowed');
+ok(ai_exec_validate('find /tank -name test.log') eq '', 'exec: find allowed');
+ok(ai_exec_validate('find /tank -name "*.log"') =~ /Shell-Metazeichen/, 'exec: find with quoted wildcard blocked (security fix cs_26.08.26_23)');
 ok(ai_exec_validate('curl -s http://example.com') eq '', 'exec: curl allowed');
 ok(ai_exec_validate('rm -rf /tank/x') =~ /exec_deny/, 'exec: rm -rf blocked by deny');
 ok(ai_exec_validate('zfs destroy tank/data@old') =~ /exec_deny/, 'exec: zfs destroy blocked by deny');

@@ -383,10 +383,11 @@ sub _ai_chmod0600 {
 ################  Level 2 -- exec validation (D2: command classes + deny)
 # Returns '' if the command may run, else a German error string.
 #  - exec_access=ro  -> never
-#  - exec_deny       -> always blocks (substring match), wins
-#  - exec_access=exec -> single command only (no shell metacharacters), first
-#    word/prefix must be in exec_allow (class list), with a word boundary so
-#    "zfs" cannot match "zfsdestroy" etc.
+#  - exec_deny       -> always blocks (case-insensitive substring match), wins
+#  - exec_access=exec -> single command only (no shell metacharacters --
+#    matches server.pl's own shell-trigger set: ; & | ` \n < > * ? ' " ( ) $),
+#    first word/prefix must be in exec_allow (class list), with a word
+#    boundary so "zfs" cannot match "zfsdestroy" etc.
 #  - exec_access=console -> allowed (napp-it remote console, arbitrary shell
 #    by design), deny still applies -- only exec_deny gates this level.
 sub ai_exec_validate {
@@ -397,10 +398,16 @@ sub ai_exec_validate {
     return 'AI ist read-only (exec_access=ro).' if (ai_trim($c{exec_access} // 'ro')) eq 'ro';
     my $deny = ai_trim($c{exec_deny} // '');
     if ($deny ne '') {
+        # cs_26.08.26_23 (security audit finding): case-INsensitive match --
+        # command names on Windows targets are case-insensitive (FORMAT ==
+        # format), so a differently-cased variant of a denied command (most
+        # notably "format", meant to block drive formatting) used to bypass
+        # this check entirely on mswin members.
+        my $cmd_lc = lc($cmd);
         for my $d (split(/\|/, $deny)) {
             $d = ai_trim($d);
             next if $d eq '';
-            return "Befehl von exec_deny blockiert: $d" if index($cmd, $d) >= 0;
+            return "Befehl von exec_deny blockiert: $d" if index($cmd_lc, lc($d)) >= 0;
         }
     }
     if ((ai_trim($c{exec_access} // 'ro')) eq 'exec') {
@@ -411,8 +418,22 @@ sub ai_exec_validate {
         # no exec_deny substring hit, but a second command rides along).
         # exec_access=console intentionally allows arbitrary shell (unchanged
         # above) -- use console, not exec, when chained commands are needed.
-        if ($cmd =~ /[;&|`\n]|\$\(|<\(/) {
-            return "Befehl enthaelt Shell-Metazeichen (; & | \` \$( ) -- in exec_access=exec ist nur ein einzelner, nicht verketteter Befehl erlaubt. Fuer verkettete Befehle exec_access=console verwenden.";
+        #
+        # cs_26.08.26_23 (security audit finding): this blocklist used to
+        # cover only ; & | ` \n $( <( -- narrower than what server.pl's own
+        # command dispatcher (~server.pl line ~1650) treats as "needs a real
+        # shell": [|&;<>*?$'"`()]. A command like "zfs list > C:\some\path"
+        # passed HERE (class "zfs" allowed, no listed metachar present) but
+        # then hit server.pl's broader check, which DOES route ">" through a
+        # real shell -- turning an allow-listed, supposedly read-mostly
+        # class into an arbitrary-file-write primitive via redirection, and
+        # defeating exec_access=exec's "single unchained command, no shell"
+        # guarantee. Fix: match (a superset of) server.pl's own set here, so
+        # nothing that would trigger shell routing downstream can pass this
+        # gate in exec_access=exec mode. exec_access=console is unaffected
+        # -- arbitrary shell there is intentional, documented behavior.
+        if ($cmd =~ /[;&|`\n<>*?'"()]|\$/) {
+            return "Befehl enthaelt Shell-Metazeichen (; & | \` < > * ? ' \" ( ) \$ ) -- in exec_access=exec ist nur ein einzelner, nicht verketteter Befehl ohne Shell-Funktionen (Umleitung, Wildcards, Substitution) erlaubt. Fuer solche Faelle exec_access=console verwenden.";
         }
         my $allow = ai_trim($c{exec_allow} // '');
         return 'exec_access=exec, aber exec_allow ist leer (keine Befehle erlaubt).' unless $allow ne '';
