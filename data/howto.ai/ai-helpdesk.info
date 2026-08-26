@@ -240,6 +240,23 @@ SECURITY MODEL
     trusted admins.
   - exec_mode=confirm (default): every exec needs the explicit
     "Ausführen" click in the browser. auto only with a tight allow list.
+  - cs_26.08.26_20/_21 (Gea, "act" behavior + interactive installs): since
+    v1.2.1 the model is instructed to ACT (emit [[ACTION]]) when asked to
+    do or determine something, instead of just explaining the command in
+    prose to the user -- and to read the returned command output on its
+    next turn and keep going (propose the next command or give a final
+    answer), not hand it back to the user to interpret. Since v1.2.2 the
+    model is also told to NEVER propose an installer/package command
+    without its non-interactive/silent flag (apt-get install -y +
+    DEBIAN_FRONTEND=noninteractive, winget install --silent
+    --accept-package-agreements --accept-source-agreements, choco
+    install -y, yum/dnf install -y, pkg install -y, msiexec /quiet) --
+    commands run with no interactive terminal attached, so a command
+    that prompts (Y/n, license, GUI wizard) can never be answered.
+    Backstop: server.pl's command dispatcher wraps every exec path (not
+    just curl) in IPC::Run with a 60s timeout that kills a hung child, so
+    even if the model proposes an interactive command anyway, it fails
+    cleanly with an error after 60s instead of hanging the backend.
   - Combining exec_access!=ro with research!=off widens the prompt-injection
     surface (search results are untrusted DATA that can influence the next
     proposed command); the Settings page (System > Services > AI Helpdesk)

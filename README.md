@@ -345,11 +345,27 @@ context. Size is configurable: `widget_input_lines` (1 = single-line input,
     happens in the separate session-gated Perl CGI
     (`cs-aihelp-exec.pl`) via the encrypted `&exe()/&socket()` channel.
   - `exec_deny` is always applied and **wins** (default
-    `zfs destroy|zpool destroy|rm -rf|dd |mkfs|format`).
-  - `exec_access=exec` additionally requires the command's class to be in
-    `exec_allow` (D2); an empty `exec_allow` = nothing executes.
+    `zfs destroy|zpool destroy|rm -rf|dd |mkfs|format`), in both modes below.
+  - `exec_access=exec` ("act" in the GUI) is **allow-list**: the command's
+    class must be present in `exec_allow` (D2); an empty `exec_allow` =
+    nothing executes.
+  - `exec_access=console` is **deny-list only**: `exec_allow` is bypassed
+    entirely — anything may run except what `exec_deny` matches. Wider
+    than `exec`, so grant it only to fully trusted admins.
   - `exec_mode=confirm` (default) requires an explicit **Ausführen** click
     per command; `auto` should only be used with a tight allow list.
+  - Since v1.2.1, the model is instructed to *act* (emit `[[ACTION]]`) when
+    asked to do or determine something, instead of just describing the
+    command in prose — and to read the returned output on its next turn and
+    keep going, rather than handing it back to the user to interpret.
+  - Since v1.2.2, the model is told to never propose an installer/package
+    command without its non-interactive/silent flag (`apt-get install -y`,
+    `winget install --silent ...`, `choco install -y`, `msiexec /quiet`,
+    etc.) — commands run with no interactive terminal attached. As a
+    backstop, `server.pl`'s command dispatcher already wraps every exec
+    path (not just `curl`) in `IPC::Run` with a 60s timeout that kills a
+    hung child, so a command that blocks on a prompt anyway fails cleanly
+    rather than hanging the backend.
 - Chat history contains question/answer pairs only (no secrets) and is
   pruned by the retention setting.
 
