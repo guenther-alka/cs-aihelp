@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.2.0 (2026-08-26) — remove silent setup-fallback
+
+- **Removed the automatic `fallback=free` retry** in `askInternal()`
+  (`go/app.go`). Previously, when a `mode=provider` call failed
+  (unreachable endpoint, wrong/expired key, timeout), the daemon silently
+  retried via the local/free tier and labeled the answer *"via free
+  (Fallback)"*. Decided this is a bigger surprise than a visible error: a
+  user who deliberately configured (and is often paying for) a specific
+  provider should see the failure and fix it, not unknowingly get an
+  answer from a different, uncontrolled model. A failing provider call
+  now returns the error directly.
+- `DefaultConfig().Fallback` changed from `"free"` to `"off"`
+  (`go/config.go`) to match. The `fallback` config key is still parsed
+  from existing config files (so old `fallback = free` lines don't break
+  anything) but is no longer read/acted on anywhere -- fully inert.
+  Mirrors the Settings-UI side (`data/menues/.../12_AI_Helpdesk/action.pl`),
+  which already force-writes `fallback = off` on every Save since the UI
+  pass that preceded this Go change.
+- No config migration needed; existing `_cfg/cs-aihelp` files keep
+  working as-is, just without the silent-retry behavior going forward.
+
 ## v1.1.6 (2026-08-26) — transparent Local-docs/General-AI answers + relevance fix
 
 - **System prompt now always structures answers into two labeled

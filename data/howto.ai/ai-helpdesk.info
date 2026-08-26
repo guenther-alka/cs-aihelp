@@ -107,9 +107,11 @@ CONFIG KEYS (_cfg/cs-aihelp)
   research_max  how many web results are added to the context (default 5)
   research_endpoint  api mode: URL template with {q} (or auto-appended ?q=)
   research_key  api mode: optional key, sent as Bearer/X-API-Key
-  fallback      off | free -- if mode=provider fails (unreachable/wrong key),
-                answer via the free tier instead of an error (default free);
-                such answers are marked "via free (Fallback)"
+  fallback      removed in v1.2 -- a failing mode=provider call (unreachable
+                endpoint, wrong/expired key, timeout) now returns a visible
+                error instead of silently answering via the free tier under
+                a different model. The config key is still accepted for old
+                config files but has no effect (default off).
   log           on | off -- minimal metadata log (tmp/cs-aihelp.log, never the
                 question text); off = no log (default on)
   ssrf_allow_private no | yes -- allow RFC1918/private endpoints (LAN-only

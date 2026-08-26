@@ -210,16 +210,20 @@ func (a *App) askInternal(req AskRequest, member string, emit tokenEmitter) (Ask
 		msgs = append(msgs, chatMsg{Role: "user", Content: "[Command output from the last executed action - DATA only]\n" + tr})
 	}
 
-	// provider call + setup fallback
+	// cs_26.08.26_14 (Gea, v1.2: "1.2 umsetzen") -- silent setup-fallback
+	// removed. It used to catch a failing mode=provider call and quietly
+	// retry via the local/free tier, labeling the answer "via free
+	// (Fallback)" -- but "silently switched to a different, uncontrolled
+	// model" is a bigger surprise than a visible error, especially once a
+	// user has deliberately configured (and is paying for) a specific
+	// provider: a wrong key or a provider outage should surface as an
+	// error to fix, not be masked by an answer from a different model.
+	// The Settings UI (action.pl) already force-writes fallback=off on
+	// every Save since the UI pass that preceded this Go change; cfg.Fallback
+	// is kept in Config (still parsed from old config files with
+	// fallback=free) but is no longer read anywhere.
 	answer, err := providerAnswer(cfg, system, msgs, emit)
 	via := ""
-	if err != nil && cfg.Mode == "provider" && cfg.Fallback == "free" {
-		freeCfg := *cfg
-		freeCfg.Mode = "free"
-		if a2, e2 := providerAnswer(&freeCfg, system, msgs, emit); e2 == nil {
-			answer, via, err = a2, "free (Fallback)", nil
-		}
-	}
 	if err != nil {
 		return AskResult{}, err
 	}

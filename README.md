@@ -53,9 +53,12 @@ local or cloud LLM — with or without an API key.
 - **Bring-your-own provider** — `mode=provider` for **Anthropic**, **OpenAI**
   (or any OpenAI-compatible endpoint: vLLM, LM Studio, Groq, ...) and
   **Ollama** (no key needed).
-- **Setup fallback** — `fallback=free` (default): if the configured provider
-  fails (unreachable, wrong key, timeout), the helpdesk automatically answers
-  via the free tier and marks the answer *"via free (fallback)"*.
+- **No silent fallback** — a failing `mode=provider` call (unreachable,
+  wrong key, timeout) is surfaced as an error, not quietly answered by a
+  different, uncontrolled model. (Removed in v1.2 — earlier versions had an
+  automatic `fallback=free` retry via the local/free tier; the `fallback`
+  config key is still parsed for backward compatibility but no longer acted
+  on.)
 - **Grounded answers, sourced transparently** — light-RAG over
   `data/howto.ai/*.info`, with filename-aware relevance ranking so a
   question naming a topic (e.g. "what is cs-sync") reliably surfaces the
@@ -242,7 +245,7 @@ previously System > Services) — saved to `_cfg/cs-aihelp`, a flat
 | `provider2` | `openai` \| `anthropic` \| `ollama` (`openai`) | slot 2, used in `mode2=provider` |
 | `endpoint2` / `model2` / `api_key2` / `free_model2` | (empty) | slot 2 provider settings |
 | `free_model` | string (empty) | slot 1 `mode=free`: local Ollama model tag; empty = first available |
-| `fallback` | `off` \| `free` (`free`) | answer via free tier when `mode=provider` fails |
+| `fallback` | `off` (`off`) | removed in v1.2 (was: answer via free tier when `mode=provider` fails) — parsed for backward compat only, no longer acted on |
 | `tool_use` | `no` \| `yes` (`no`) | Level 1: attach read-only live state (hostname, zpool list) |
 | `research` | `off` \| `ddg` \| `api` (`ddg`) | web research; `ddg` = DuckDuckGo Lite (no key), `api` = external endpoint |
 | `research_max` | number (`5`) | max. search results added to the context |
@@ -366,11 +369,10 @@ cs-aihelp (Go daemon, 127.0.0.1:45555)      ← since v1.0 the AI core
    │  in-memory RAG index (data/howto.ai/*.info)
    │  optional web research (ddg / api)
    │  provider call: free (Ollama→Pollinations) | provider (anthropic/openai/ollama)
-   │  setup fallback provider → free
    │  chat history (_cfg/aihelp/conv_*.json), /resume
    ▼
 Browser: tokens streamed as SSE (data:{"t":...} ... event:done) or buffered
-JSON; answer + sources (+ "via free (Fallback)") rendered.
+JSON; answer ("Local docs:" / "General AI:" sections) + sources rendered.
 ```
 
 The frontend UI (menus, settings, popup, chat page) is the thin Perl layer:

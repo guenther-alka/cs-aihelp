@@ -83,7 +83,12 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Mode: "free", Provider: "openai", Fallback: "free",
+		// cs_26.08.26_14 (Gea, v1.2): default changed from "free" to
+		// "off" -- the silent setup-fallback behavior itself was removed
+		// from app.go's askInternal(); this field is kept only for
+		// backward-compat parsing of old config files (fallback=free),
+		// it is no longer read anywhere.
+		Mode: "free", Provider: "openai", Fallback: "off",
 		ToolUse: false, MaxContext: 8000,
 		Research: "ddg", ResearchMax: 5,
 		History: "month", HistoryTurns: 10,
