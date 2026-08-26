@@ -61,6 +61,20 @@ CONFIG KEYS (_cfg/cs-aihelp)
   mode          off | free | provider              (default free)
   provider      openai | anthropic | ollama        (mode=provider only)
   endpoint      full chat-completions/messages URL ('' = provider default)
+                Settings page offers a "Provider preset" dropdown (both
+                slots) that fills Provider+Endpoint from
+                _cfg/cs-aihelp-providers.txt -- a flat, user-editable
+                Name<TAB>Protocol<TAB>Endpoint list (mirrors the providers
+                Cline offers; most are protocol=openai since they expose an
+                OpenAI-compatible chat-completions API, only the base URL
+                differs). Shorten the list by deleting/commenting lines.
+                A newly typed API key is remembered per endpoint in the
+                separate _cfg/cs-aihelp-provider-keys.txt (DO NOT SHARE --
+                unlike cs-aihelp-providers.txt this one holds secrets) so
+                switching between presets restores the matching key
+                automatically; leaving the API key field empty tries that
+                store first, then falls back to whatever was already
+                configured.
   model         '' = provider default
   api_key       cloud providers only, never logged
   mode2         '' | free | provider  (slot 2 / act-provider, Cline-style;
@@ -113,6 +127,25 @@ CONFIG KEYS (_cfg/cs-aihelp)
   (SSRF guard)  provider endpoint and research_endpoint are validated:
                 http(s) only; link-local/metadata/reserved are blocked;
                 loopback allowed; RFC1918 only with ssrf_allow_private=yes
+
+RAG (active knowledge)
+----------------------
+- Index: the Go daemon loads data/howto.ai/*.info + *.txt (underscore-
+  prefixed files are skipped) into an in-memory index at start
+  (serve -> reindex) and auto-rebuilds on every /ask when any file mtime
+  changed -- new or edited .info files become active without a restart.
+  Manual: POST /reindex.
+- Retrieval: per question the daemon tokenizes the query (stop words,
+  >= 3 chars) and scores every doc (+1 per keyword hit in the content,
+  +5 per hit in the FILE NAME for specificity), takes the top 4 docs and
+  a ~30-line snippet (max 3000 chars) of each.
+- Prompt: the snippets are injected into the system prompt as two clearly
+  labelled sections -- "Local docs:" (answer ONLY from the excerpts, never
+  invent napp-it commands/paths/settings; say "not covered" explicitly)
+  and "General AI:" (model knowledge). Total doc budget = max_context
+  (default 8000 chars).
+- Sources: the selected file names are returned as `sources` and shown
+  under "Sources:" in the UI.
 
 COMMUNICATION / UX
 ------------------
