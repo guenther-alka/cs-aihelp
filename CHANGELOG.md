@@ -1,5 +1,39 @@
 # Changelog
 
+## (2026-08-26, Perl only) — fullscreen helpdesk: exact JS-computed page height
+
+- **Trigger**: "Help > AI Helpdesk sollte nach reload die ganze seite inkl
+  toolbar zeigen mit scrollbar im antwort bereich" — after a page reload the
+  toolbar (Provider/Mode/Actions selects + Ask/Abort/Resume/New) was below
+  the fold and not visible without scrolling the whole browser page.
+- **Root cause**: the container's height was a static CSS guess,
+  `height:calc(100vh - 150px)`. The actual space used above the container
+  (napp-it menu, breadcrumb, the "AI helpdesk for ..." status bar) varies
+  by browser/zoom and was more than 150px in the reported case, so the flex
+  box was taller than the remaining viewport — the page itself scrolled and
+  the toolbar (the last flex child) ended up off-screen.
+- **Fix**: dropped the static height guess. A small JS helper (`_aiFitPage`,
+  inline in `ai_chat_page()`) measures the container's real
+  `getBoundingClientRect().top` after render and sets an exact pixel height
+  (`window.innerHeight - top - 8px`), on load and on window resize. The
+  previously separate "Mode: ..." info paragraph (printed *after* the
+  container, so its height wasn't part of the old calc at all) is now
+  folded into the toolbar row itself, so the whole visible page is a single
+  measured flex box: only the answer/log area scrolls internally
+  (`#aihelp_log`, `overflow-y:auto`), the question box scrolls its own
+  textarea, and the toolbar (`flex:0 0 auto`) is always fully visible at a
+  fixed height at the bottom — the page itself never scrolls.
+- **Testbase drift caught again**: while re-verifying the prior security-audit
+  fix's test-suite edit after this change, `sync.ps1` overwrote
+  `tests/ai_helpdesk_test.pl` back to the pre-fix version, because
+  `sync.ps1` copies test files FROM `C:\opt\testbase\` INTO the repo, not
+  the other way round — a repo-only test edit is silently reverted on the
+  next sync. Re-applied the "find allowed" test fix to
+  `C:\opt\testbase\ai_helpdesk_test.pl` (the actual source of truth), then
+  re-synced. 87/87 tests pass.
+- **Perl-only change** (`ai_chat_page()` in `aihelplib.pl`) — no Go/daemon
+  change, no version bump.
+
 ## (2026-08-26, Perl only) — security audit: exec_access=exec metachar gap + case-sensitive exec_deny
 
 - **Trigger**: "funktions und security audit cs-aihelp durchfuehren" — a full
