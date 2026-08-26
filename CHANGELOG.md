@@ -1,5 +1,41 @@
 # Changelog
 
+## (2026-08-26, Perl only) — security audit: exec_access=exec metachar gap + case-sensitive exec_deny
+
+- **Trigger**: "funktions und security audit cs-aihelp durchfuehren" — a full
+  functional + security review of the exec/console/act code path
+  (`ai_exec_validate()`/`ai_exec_allowed()` in `aihelplib.pl`,
+  `cs-aihelp-exec.pl`, `server.pl`'s dispatcher, `ssrf.go`, `server.go`,
+  auth/session/rate-limiting, history conv-ID sanitization). Two findings,
+  both fixed the same day, user approved with "ja":
+- **HIGH — exec_access=exec metachar blocklist too narrow**: the Perl-side
+  guard only rejected `; & | \` newline $( <(`, while `server.pl`'s actual
+  dispatcher shell-wraps on a wider set (`| & ; < > * ? $ ' " \` ( )`). A
+  command containing `>` (redirection), `*`/`?` (wildcards), or quotes could
+  pass Perl-side `exec_access=exec` validation yet still be routed to a real
+  shell on the backend — e.g. enabling arbitrary file writes via output
+  redirection. Fixed by broadening the Perl regex to match `server.pl`'s
+  actual shell-routing detection: `/[;&|\`\n<>*?'"()]|\$/`. A command needing
+  any of these shell features must now use `exec_access=console` instead.
+- **MEDIUM — exec_deny case-sensitive**: the deny-list did a case-sensitive
+  substring match, so e.g. `exec_deny=format` could be bypassed on Windows
+  targets by typing `FORMAT` (Windows commands are case-insensitive).
+  Fixed: `exec_deny` matching is now case-insensitive (`lc()` on both sides).
+- **No other findings**: SSRF guard, auth (IP allowlist + constant-time
+  Bearer token compare), per-IP rate limiting, `server.pl`'s per-command
+  `IPC::Run` timeout coverage (all branches, confirmed already fixed
+  2026-08-17, predates this session), and history conv-ID sanitization
+  (`[^A-Za-z0-9_.-]` stripped both sides, no path traversal) were reviewed
+  and found sound. `check_session()`/`load_group_auth()` authorize by
+  session role (admin/operator), not per-member — consistent with napp-it
+  cs's overall single-admin-team trust model, not treated as a gap.
+- **Perl-only change** (`ai_exec_validate()` in `aihelplib.pl`) — no Go/
+  daemon change, so no new release/version bump; usual live-deploy + git
+  sync + test cycle. Updated `tests/ai_helpdesk_test.pl`'s "find allowed"
+  test (the old test command used a quoted wildcard, now correctly
+  rejected) and added a new test confirming the rejection. 87/87 tests
+  pass.
+
 ## v1.2.2 (2026-08-26) — exec/console: never propose an interactive install
 
 - **Root cause found**: `server.pl`'s general command dispatcher runs
