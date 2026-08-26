@@ -25,12 +25,23 @@
   should check first whether the thing is already installed/running
   before proposing an install, and should explain rather than propose
   when a command has no non-interactive form.
-- **Not fixed here (separate, bigger change)**: the dispatcher itself
-  still has no general per-command timeout for non-curl commands. This
-  release only stops the model from walking into that hole on purpose;
-  a hung backend from some OTHER cause (or a model ignoring the
-  instruction) is still possible. A real fix would need a general timeout
-  wrapper in `server.pl`'s command dispatcher, out of scope today.
+- **Correction (added later the same day)**: this entry originally
+  claimed the dispatcher itself "still has no general per-command
+  timeout for non-curl commands" and that a fix was out of scope. That
+  was wrong -- `server.pl`'s command dispatcher (the `run cmd -> file`
+  block, ~line 1600) was already generalized to wrap EVERY branch (curl
+  array-exec, `powershell -encodedcommand` array-exec, shell-metachar
+  commands, and the plain-command fallback) in `IPC::Run run(..., timeout
+  ($timeout))` -- fixed 2026-08-17 ("audit H1"), before this release and
+  before this investigation. `$timeout` defaults to 60s, well inside the
+  AI Helpdesk's own 120s client-side wait, and `IPC::Run`'s `timeout()`
+  kills the child on expiry rather than leaving it running. So a
+  smartmontools-style install that blocks on a Y/n prompt already gets
+  killed and returns an error after 60s -- it does NOT hang `server.pl`
+  forever the way the `behaviours.info` Gotcha #15 incident (which
+  predates the H1 fix) did. The prompt-side non-interactive-flags
+  mitigation above is still worth keeping (a clean silent install beats
+  a 60s timeout + error), but no dispatcher change is needed.
 - **Full-screen layout fix (Perl/JS, shipped in the same tag)**: dropped
   the outer `aihelp_page` div's `min-height:520px`, which could force
   the whole page to scroll on short browser windows and push the
