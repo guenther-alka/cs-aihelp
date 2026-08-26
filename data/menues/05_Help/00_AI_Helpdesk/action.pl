@@ -19,6 +19,7 @@ sub my_action {
 
     eval { &mylib_menue_system };
     &load_lib('aihelplib.pl');
+    print "<script language='javascript'>\$('#hl').html('AI helpdesk for $in{'member'}\:$current{'on'}')</script>\n";
 
     ai_chat_page($in{'member'}, $in{'l1'}, $in{'l2'}, $in{'l3'});
 

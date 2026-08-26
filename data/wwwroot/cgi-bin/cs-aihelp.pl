@@ -120,6 +120,13 @@ if ($sess_err) {
         . encode_json({ ok => 0, error => "Session: $sess_err" }) . "\n";
     exit;
 }
+# cs_26.08.26_11 (Gea: "helpdesk soll die session offen halten") -- active
+# use of the AI Helpdesk (asking, resuming, switching provider) now keeps
+# the underlying web-GUI session alive instead of expiring after a fixed
+# 3600s of no *other* page navigation. See touch_session() in socketlib.pl
+# for why this is a separate opt-in call rather than built into
+# check_session() itself.
+touch_session($in{id} // '');
 
 my $member = $in{member} // 'localhost~127.0.0.1';
 &load_group_auth($member);

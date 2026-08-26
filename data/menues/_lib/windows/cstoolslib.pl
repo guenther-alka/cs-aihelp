@@ -44,7 +44,14 @@ sub cstools_registry {
           desc => 'Notification / mail helper.' },
         { key => 'stream', name => 'cs-stream (event stream)',
           repo => 'guenther-alka/cs-stream', asset => 'cs-stream', subdir => 'cs-stream',
-          module => 0, kind => 'raw', tok => { mswin => 'windows' },
+          module => 0, kind => 'raw',
+          # cs_26.08.26 (Gea: "cs-stream ist any os"): release ships assets
+          # for every platform cstools_platform() can detect -- linux,
+          # windows, freebsd, illumos, solaris, darwin -- so map all of
+          # them explicitly instead of windows-only (verified against the
+          # actual GitHub release asset names).
+          tok => { mswin => 'windows', linux => 'linux', illumos => 'illumos',
+                   solaris => 'solaris', freebsd => 'freebsd', darwin => 'darwin' },
           desc => 'Event stream service.' },
         { key => 'freeze4snap', name => 'cs-freeze4snap',
           repo => 'guenther-alka/cs-freeze4snap', asset => 'cs-freeze4snap', subdir => 'cs-freeze4snap',
