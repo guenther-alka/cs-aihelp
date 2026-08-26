@@ -191,7 +191,7 @@ perl install.pl /opt/csweb-gui     # default target is /opt/csweb-gui
 | `data/menues/_lib/windows/cstoolslib.pl` | CS tools registry + GitHub download |
 | `data/menues/05_Help/00_AI_Helpdesk/action.pl` | chat menu (first item in Help) |
 | `data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl` | settings menu |
-| `data/menues/10_System/03_CS_Tools/action.pl` | **System > CS Tools Download** download/update menu (incl. local AI / Ollama) |
+| `data/menues/_lib/tools/CS_Tools_Download/action.pl` | **System > CS Tools Download** download/update menu (incl. local AI / Ollama) |
 | `data/howto.ai/ai-helpdesk.info` | module documentation |
 | `config/cs-aihelp.example` → `_cfg/cs-aihelp` | default config (only if absent) |
 

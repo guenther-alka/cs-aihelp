@@ -21,7 +21,7 @@ my @files = (
   'data/menues/_lib/windows/cstoolslib.pl',
   'data/menues/05_Help/00_AI_Helpdesk/action.pl',
   'data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl',
-  'data/menues/10_System/03_CS_Tools/action.pl',
+  'data/menues/_lib/tools/CS_Tools_Download/action.pl',
   'data/howto.ai/ai-helpdesk.info',
 );
 

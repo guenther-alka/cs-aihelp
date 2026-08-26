@@ -40,20 +40,24 @@ sub my_action {
     }
 
     # ------------------------------------------------- ollama pull (background)
+    # cs_26.08.25 (Gea: "clicked pull, nothing happens" -- ai_ollama_pull_bg()
+    # used to be fire-and-forget with zero feedback). Now: start the pull,
+    # then redirect to $base&pull_model=<model> so the status block below
+    # (which reads ai_ollama_pull_status()) can show live progress and
+    # auto-refresh while it runs.
     if (($in{'ollama_pull'} // '') eq '1') {
         my $model = ai_trim($in{'ollama_model'} // '');
         $model =~ s/[^A-Za-z0-9:._-]//g;
         my ($ok, $msg);
         if ($model eq '') {
             ($ok, $msg) = (0, 'no model name');
-        } elsif (ai_ollama_pull_bg($model)) {
-            ($ok, $msg) = (1, "pulling '$model' in the background -- refresh this page later to see it in the model list");
         } else {
-            ($ok, $msg) = (0, 'could not start the pull (Ollama not reachable?)');
+            ($ok, $msg) = ai_ollama_pull_bg($model);
         }
+        my $redir = $ok ? "$base&pull_model=" . ai_esc($model) : $base;
         print "<div style='color:#060;background:#dfd;border:1px solid #6a6;border-radius:4px;padding:6px 10px;display:inline-block'>"
             . ai_esc($msg) . "</div><br><br>\n";
-        print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 2500);</script>\n";
+        print "<script>setTimeout(function(){ window.location.href=\"$redir\"; }, 800);</script>\n";
         &log_end;
         return;
     }
@@ -76,16 +80,27 @@ sub my_action {
         . "<th style='text-align:left;padding:4px 8px'>Current</th>"
         . "<th style='text-align:left;padding:4px 8px'>Newest</th>"
         . "<th style='text-align:left;padding:4px 8px'>Action</th></tr>\n";
+    my ($my_platform, $my_arch) = cstools_platform();
     for my $e (@{cstools_registry()}) {
         my ($present, $ver) = cstools_installed($e->{key});
         my $cur = $present ? ai_esc($ver) : "<span style='color:#a00'>not installed</span>";
         my $new = ai_esc(cstools_latest_tag($e->{repo}));
         $new = '<i>? (GitHub)</i>' if $new eq '';
+        # cs_26.08.25 (Gea: "csfreeze4snap geht nicht" -- e.g. cs-freeze4snap
+        # only ships a Linux asset (Windows has no fsfreeze equivalent; VSS
+        # would need a separate tool). Previously the button was shown
+        # regardless and only failed with a generic error after clicking.
+        # Now: grey out + explain up front for tools with no asset for this
+        # OS, instead of letting the user hit an avoidable error.
+        my $supported = (cstools_asset_platform($e, $my_platform) ne '');
+        my $action_html = $supported
+            ? $dl_form->($e->{key}, 'download/update')
+            : "<span style='color:#888;font-size:11px'>not available on this OS ($my_platform/$my_arch)</span>";
         $rows .= "<tr><td style='padding:4px 8px'>" . ai_esc($e->{name})
             . "<br><span style='color:#888;font-size:11px'>" . ai_esc($e->{desc}) . "</span></td>"
             . "<td style='padding:4px 8px'>$cur</td>"
             . "<td style='padding:4px 8px'>$new</td>"
-            . "<td style='padding:4px 8px'>" . $dl_form->($e->{key}, 'download/update') . "</td></tr>\n";
+            . "<td style='padding:4px 8px'>$action_html</td></tr>\n";
     }
     print "<b>CS tools (GitHub download/update)</b><br>\n";
     print "<table width='100%' style='border-collapse:collapse;border:1px solid #ccc'>$rows</table><br>\n";
@@ -111,8 +126,15 @@ sub my_action {
     } else {
         $ollama_dl = "<span style='color:#888'>Ollama runs on Linux/macOS/Windows only -- on this OS use a remote Ollama (OLLAMA_BASE) or the free (Pollinations) fallback.</span>";
     }
+    my $ollama_base_env = ai_esc($ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434 (default)');
+    my $quick_models = ['llama3.1', 'qwen2.5', 'mistral', 'phi3', 'gemma2'];
     my $pull_form = '';
     if ($ollama_ok) {
+        my $quick_html = '';
+        for my $m (@$quick_models) {
+            $quick_html .= "<a href='#' onclick=\"document.getElementById('ollama_model_fld').value='"
+                . ai_esc($m) . "';return false;\" style='margin-right:6px;font-size:11px'>" . ai_esc($m) . "</a>";
+        }
         $pull_form = "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
             . "<input type='hidden' name='member' value=\"" . ai_esc($in{'member'}) . "\">"
             . "<input type='hidden' name='id' value=\"" . ai_esc($in{'id'}) . "\">"
@@ -121,8 +143,12 @@ sub my_action {
             . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
             . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
             . "<input type='hidden' name='ollama_pull' value='1'>"
-            . "<input type='text' name='ollama_model' value='llama3.1' style='width:180px' title='model tag, e.g. llama3.1, qwen2.5, mistral'>"
-            . " <input type='submit' value='Pull model' style='padding:2px 8px'></form>";
+            . "<input id='ollama_model_fld' type='text' name='ollama_model' value='llama3.1' style='width:180px' title='model tag, e.g. llama3.1, qwen2.5, mistral'>"
+            . " <input type='submit' value='Pull model' style='padding:2px 8px'></form>"
+            . "<div style='margin-top:2px'>quick pick: $quick_html</div>"
+            . "<div style='color:#888;font-size:11px;margin-top:2px'>Ollama endpoint: $ollama_base_env "
+            . "(override with env OLLAMA_BASE). Pull downloads run in the background and can take "
+            . "several minutes to tens of minutes depending on model size and link speed -- status is shown below once started.</div>";
     }
     my $settings_link = "/cgi-bin/admin.pl?id=" . ai_esc($in{'id'}) . "&amp;member=" . ai_esc($member || '')
         . "&amp;l1=10&amp;l2=05&amp;l3=12";
@@ -131,9 +157,37 @@ sub my_action {
         . "<th style='text-align:left;padding:4px 8px'>Download / configure</th></tr>\n"
         . "<tr><td style='padding:4px 8px'>Ollama (local LLM)<br><span style='color:#888;font-size:11px'>Download/install Ollama and pull a local model for the AI Helpdesk. The cs-aihelp daemon itself is managed under System &gt; Services &gt; AI Helpdesk.</span></td>"
         . "<td style='padding:4px 8px'>$ollama_status<br><span style='color:#888;font-size:11px'>$ollama_models_html</span></td>"
-        . "<td style='padding:4px 8px'>$ollama_dl<br><br>$pull_form<br><a href=\"$settings_link\"><b>AI Helpdesk settings</b></a></td></tr>\n";
+        . "<td style='padding:4px 8px'>$ollama_dl<br><br>$pull_form<br><br><a href=\"$settings_link\"><b>AI Helpdesk settings</b></a></td></tr>\n";
     print "<b>AI Helpdesk (local)</b><br>\n";
-    print "<table width='100%' style='border-collapse:collapse;border:1px solid #ccc'>$ai_rows</table><br>\n";
+    print "<table width='100%' style='border-collapse:collapse;border:1px solid #ccc'>$ai_rows</table>\n";
+
+    # -------------------------------------------- live pull status (cs_26.08.25)
+    # shows what ai_ollama_pull_bg() is actually doing for the most recently
+    # requested model (passed through as ?pull_model=... after the redirect
+    # above), and auto-refreshes the page while it's still running.
+    my $watch_model = ai_trim($in{'pull_model'} // '');
+    $watch_model =~ s/[^A-Za-z0-9:._-]//g;
+    if ($watch_model ne '') {
+        my @st = ai_ollama_pull_status($watch_model);
+        if (@st) {
+            my ($state, $age, $smsg) = @st;
+            my %box = (
+                starting => ['#fffbe0', '#e0c060', 'starting'],
+                pulling  => ['#fffbe0', '#e0c060', 'pulling'],
+                done     => ['#dfd',    '#6a6',    'done'],
+                error    => ['#fee',    '#faa',    'error'],
+            );
+            my $b = $box{$state} || ['#eee', '#ccc', $state];
+            print "<br><div style='background:$b->[0];border:1px solid $b->[1];border-radius:4px;padding:6px 10px;display:inline-block'>"
+                . "<b>pull '" . ai_esc($watch_model) . "': $b->[2]</b>"
+                . " (" . $age . "s ago) -- " . ai_esc($smsg) . "</div><br>\n";
+            if ($state eq 'starting' || $state eq 'pulling') {
+                my $refresh = "$base&pull_model=" . ai_esc($watch_model);
+                print "<script>setTimeout(function(){ window.location.href=\"$refresh\"; }, 4000);</script>\n";
+            }
+        }
+    }
+    print "<br>\n";
 
     print "<span style='color:#888;font-size:11px'>"
         . "Only the binary for the frontend OS is downloaded. The OS structure "

@@ -34,7 +34,7 @@ FILES
                                                  Download)
   data/menues/05_Help/00_AI_Helpdesk/action.pl   full chat page (first in Help)
   data/menues/10_System/05_Services/12_AI_Helpdesk/action.pl  settings
-  data/menues/10_System/03_CS_Tools/action.pl    download/update menu
+  data/menues/_lib/tools/CS_Tools_Download/action.pl  download/update menu
   _cfg/cs-aihelp                                 config (key = value)
   _cfg/aihelp/conv_*.json                        chat history (per conversation)
   lang/{en,de,fr,es,it,ru,cn}/system.txt         settings field descriptions
