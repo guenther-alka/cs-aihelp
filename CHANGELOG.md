@@ -1,5 +1,33 @@
 # Changelog
 
+## (2026-08-26, Perl/JS only -- no Go daemon change, no new binary release) — KISS chat history auto-load
+
+- **The chat widget and full-screen chat now auto-load the last open
+  conversation on render**, separately for the popup widget and the
+  full-screen page (each keeps its own "current conversation" via a
+  client-side cookie: `aihelp_conv_popup` / `aihelp_conv_page`). Until now
+  every page render started with an empty log; only a manual click on
+  **Resume** brought back the previous conversation (and only "the
+  newest one", not per-context). "Ask AI" itself still only toggles CSS
+  visibility, as before -- this is purely about what shows up once the
+  widget/page renders in the first place.
+- The cookie just remembers *which* conversation ID to reload -- the
+  server-side history storage and its `history`/expire setting
+  (off/today/week/month/6months/all) are unchanged and keep working
+  exactly as before. A cookie pointing at an already-expired/cleaned-up
+  conversation is dropped silently on load (no error shown), and a fresh
+  question with no cookie present behaves exactly as before (empty log).
+- `data/menues/_lib/windows/aihelplib.pl` (`ai_chat_js()`): new
+  `_aiCookieName()`/`_aiCookieGet()`/`_aiCookieSet()` helpers; `_aiNew()`
+  clears the cookie; `handleMeta()` and `_aiResume()` write the active
+  conv ID to it; new `_aiAutoLoad()` (invoked once at the end of the
+  generated `<script>` block) loads it via the existing `action=load`
+  server endpoint (loads a specific conversation by ID, unlike
+  `action=resume` which only knows "the newest for this member" and
+  can't distinguish widget vs. full-screen state).
+- Verified: `perl -c` clean, full `tests/run_tests.ps1` suite (86/86)
+  still passes against a fresh checkout.
+
 ## v1.2.0 (2026-08-26) — remove silent setup-fallback
 
 - **Removed the automatic `fallback=free` retry** in `askInternal()`

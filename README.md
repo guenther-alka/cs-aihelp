@@ -83,7 +83,10 @@ local or cloud LLM — with or without an API key.
 - **Chat history** — conversations stored per file in
   `_cfg/aihelp/conv_*.json`, retention configurable
   (`off | today | week | month | 6months | all`, default `month`), resume any
-  earlier conversation from the history list.
+  earlier conversation from the history list. The current conversation is
+  also auto-loaded on render (per widget/full-screen, via a client-side
+  cookie) until **New** starts a fresh one -- no manual Resume click
+  needed for the common case of just continuing where you left off.
 - **Two UIs** — a full chat page (`Help > AI Helpdesk`, first item in the
   Help menu) and a draggable, context-sensitive **popup** ("Ask AI")
   injected on every logged-in page (`widget=on`).

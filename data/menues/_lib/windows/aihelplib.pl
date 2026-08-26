@@ -1695,6 +1695,48 @@ function _aiAccessMode(){
   if(em && em.value){ emode=em.value; }
   return {access:(mode==='act')?'exec':'ro', mode:emode, plan:(mode==='plan'), provider:provider};
 }
+// cs_26.08.26_16 (Gea: "KISS Chatverlauf" -- immer nur den aktuellen
+// Gespraechsverlauf bis zu einem New speichern und bei jedem Aufruf
+// wieder anzeigen, getrennt nach Widget/Vollbild). Client-seitig gemerkt
+// per Cookie (server-seitig aendert sich nichts -- die vorhandene
+// history/-expire-Logik raeumt alte Konversationen unveraendert weiter
+// auf; ein abgelaufener/geloeschter Cookie-Eintrag wird beim Laden
+// einfach als "nicht gefunden" behandelt und still verworfen, siehe
+// _aiAutoLoad()).
+function _aiCookieName(){ return _aiPopup ? 'aihelp_conv_popup' : 'aihelp_conv_page'; }
+function _aiCookieGet(name){
+  var m=document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+function _aiCookieSet(name, val){
+  if(val){ document.cookie=name+'='+encodeURIComponent(val)+';path=/;max-age=2592000'; }
+  else { document.cookie=name+'=;path=/;max-age=0'; }
+}
+function _aiAutoLoad(logId){
+  var cid=_aiCookieGet(_aiCookieName());
+  if(!cid) return;
+  var log=document.getElementById(logId||'%%LOGID%%');
+  fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id:_aiId,member:_aiMember,l1:_aiL1,l2:_aiL2,l3:_aiL3,action:'load',conv:cid})})
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(d && d.ok){
+      _aiConv=cid; _aiTool=[]; _aiBusy=false;
+      if(log){ log.innerHTML=''; }
+      var msgs=d.messages||[];
+      for(var i=0;i<msgs.length;i++){
+        var m=msgs[i];
+        if(m.role==='user'){ _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(m.text),'aihelp_q'); }
+        else if(m.role==='assistant'){ _aiAppend(log,_aiAnswerHtml({answer:_aiEsc(m.text),via:null,sources:null}),'aihelp_a'); }
+      }
+    } else {
+      // stale/expired cookie (conversation already cleaned up server-side
+      // by the history-expire setting) -- drop it silently, start fresh.
+      _aiCookieSet(_aiCookieName(), '');
+    }
+  })
+  .catch(function(e){ /* auto-load is best-effort, stay silent on network errors */ });
+}
 function _aiCall(log, question, toolResults){
   if(_aiBusy) return;
   _aiBusy=true;
@@ -1726,7 +1768,7 @@ function _aiCall(log, question, toolResults){
     _aiBusy=false;
     if(!d){ return; }
     if(d.error){ _aiAppend(log,'<span style="color:#a00">'+_aiErr(d.error)+'</span>','aihelp_e'); return; }
-    if(d.conv){ _aiConv=d.conv; }
+    if(d.conv){ _aiConv=d.conv; _aiCookieSet(_aiCookieName(), _aiConv); }
     if(d.via){ _aiAppend(log,'<div class="aihelp_v">via '+_aiEsc(d.via)+'</div>','aihelp_v'); }
     if(d.sources && d.sources.length){ _aiAppend(log,'<div class="aihelp_s">'+_aiT.sources+': '+_aiEsc(d.sources.join(', '))+'</div>','aihelp_s'); }
     if(d.action){
@@ -1862,7 +1904,7 @@ function _aiExec(log, action){
   .catch(function(e){ if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
 }
 function _aiAbort(){ _aiBusy=false; }
-function _aiNew(logId){ _aiConv=''; _aiTool=[]; _aiBusy=false; var log=document.getElementById(logId); if(log){ log.innerHTML=''; } }
+function _aiNew(logId){ _aiConv=''; _aiTool=[]; _aiBusy=false; _aiCookieSet(_aiCookieName(), ''); var log=document.getElementById(logId); if(log){ log.innerHTML=''; } }
 function _aiResume(logId){
   var log=document.getElementById(logId||'%%LOGID%%');
   fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1871,6 +1913,7 @@ function _aiResume(logId){
   .then(function(d){
     if(d && d.ok){
       _aiConv=d.conv||''; _aiTool=[]; _aiBusy=false;
+      _aiCookieSet(_aiCookieName(), _aiConv);
       if(log){ log.innerHTML=''; }
       var msgs=d.messages||[];
       for(var i=0;i<msgs.length;i++){
@@ -1919,6 +1962,7 @@ function _aiPopupDragStart(ev){
   if(el){ el.style.zIndex = 2147483000; }
   return ret;
 }
+_aiAutoLoad();
 </script>
 EoJS
     my $logid = ($widget eq 'popup') ? 'aihelp_p_log' : 'aihelp_log';
