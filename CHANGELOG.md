@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.1.6 (2026-08-26) — transparent Local-docs/General-AI answers + relevance fix
+
+- **System prompt now always structures answers into two labeled
+  sections** — `"Local docs:"` (strictly grounded in the retrieved
+  documentation excerpts; never invents napp-it-specific commands, menu
+  paths or settings; says so explicitly when the docs don't cover the
+  question) and `"General AI:"` (the model's own general knowledge,
+  always included, even when the docs already answered fully). Previously
+  the prompt said "use ONLY the documentation excerpts" for
+  napp-it-specific questions, which the model applied too literally even
+  to plain background/terminology questions (e.g. "what is SMB"),
+  refusing to use its general knowledge at all. `systemPrompt()` in
+  `go/rag.go`; mirrored in the Perl-side `ai_system_prompt()`
+  (`data/menues/_lib/windows/aihelplib.pl`) for the legacy fallback path.
+- **Fixed doc-retrieval relevance ranking** — `RagIndex.Retrieve()`
+  previously scored purely on raw keyword-occurrence count, with no
+  weighting for term specificity. Common filler words matching many
+  generic docs could outscore the one doc actually about the topic (e.g.
+  a question naming `cs-sync` could lose to `services.info` /
+  `guideline.info` under the top-4 cap, because those also happened to
+  contain frequent short words from the question). Now adds a strong
+  score bonus when a query word appears in the **filename** itself, so a
+  topic-naming question reliably surfaces its matching doc. Sort switched
+  to `sort.SliceStable` (ties not needlessly reshuffled by Go's
+  randomized map iteration order).
+- Both fixes verified with a standalone Go test against a small doc set:
+  `Retrieve("was macht cs-sync", 4)` now ranks `cs-sync.info` first
+  (previously excluded from the top 4 in the equivalent unweighted
+  scoring).
+
 ## v1.1.5 (2026-08-25) — OpenRouter as a selectable mode=provider option
 
 - **OpenRouter is now also selectable as a full `provider` (mode=provider),

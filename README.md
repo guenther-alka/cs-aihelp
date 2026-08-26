@@ -56,8 +56,15 @@ local or cloud LLM — with or without an API key.
 - **Setup fallback** — `fallback=free` (default): if the configured provider
   fails (unreachable, wrong key, timeout), the helpdesk automatically answers
   via the free tier and marks the answer *"via free (fallback)"*.
-- **Grounded answers** — light-RAG over `data/howto.ai/*.info`; unknown
-  questions are answered from the documentation instead of hallucinated.
+- **Grounded answers, sourced transparently** — light-RAG over
+  `data/howto.ai/*.info`, with filename-aware relevance ranking so a
+  question naming a topic (e.g. "what is cs-sync") reliably surfaces the
+  matching doc instead of losing out to generic ones. Every answer is
+  structured into two labeled sections — **"Local docs:"** (strictly
+  grounded in the retrieved excerpts, never invents napp-it-specific
+  commands/paths/settings) and **"General AI:"** (the model's own
+  background knowledge, always included) — so it's always clear where
+  each part of the answer came from.
 - **Level 1 read-only diagnostics** — optionally attach live state
   (`hostname`, `zpool list`) of the selected member as DATA context.
 - **Level 2 exec (agentic)** — with `exec_access = exec|console` the AI may
