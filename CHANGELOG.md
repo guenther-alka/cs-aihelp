@@ -1,6 +1,6 @@
 # Changelog
 
-## (2026-08-26, Go daemon + Perl mirror -- requires a new binary release to take effect live) — exec/console: act, don't just explain
+## v1.2.1 (2026-08-26) — exec/console: act, don't just explain
 
 - **Stronger exec-mode system-prompt instruction**: in `exec_access=exec`
   ("act") or `exec_access=console`, the model is now explicitly told it
