@@ -93,18 +93,37 @@ func parseAction(s string) (string, *Action) {
 	return s, nil
 }
 
+// execHintFor builds the system-prompt hint telling the model how (and
+// whether) to propose a command.
+//
+// cs_26.08.26_20 (Gea: "Die AI soll im exec oder console modus direkt per
+// &ask befehle ausfuehren und das ergebnis erhalten und auswerten und
+// nicht sagen was der nutzer tun soll") -- the old wording ("You MAY
+// propose... otherwise answer normally") left it up to the model whether
+// to act or just describe steps in prose; models default to the safer,
+// more verbose "here is what you could run" answer. Now explicit: ACT via
+// [[ACTION]] instead of instructing the user, and after execution treat
+// the returned output (fed back as DATA on the next turn, see the
+// "[Command output from the last executed action]" message in askInternal)
+// as something to read and reason over yourself -- propose the next
+// command or give the final answer, don't hand it back to the user to
+// interpret.
 func execHintFor(cfg *Config) string {
+	const actAndEvaluate = "You have DIRECT command execution available in this session -- you " +
+		"are not limited to describing what the user should type. When the user asks to DO " +
+		"something (create a snapshot, restart a service, list files, check status, investigate " +
+		"a problem), ACT: end your answer with a JSON block: " +
+		"[[ACTION]]{\"cmd\":\"<command>\",\"reason\":\"<why>\"}[[/ACTION]] instead of writing " +
+		"instructions for the user to run it themselves. One command per block. The system " +
+		"executes it and returns the output to you as DATA on your next turn -- read and " +
+		"evaluate that output yourself, then either propose the next command if more steps are " +
+		"needed or give the final answer once you have enough information. Only skip the ACTION " +
+		"block for purely informational questions that need no system change or lookup. "
 	switch cfg.ExecAccess {
 	case "exec":
-		return "You may propose a shell command to execute. When the user asks to DO " +
-			"something (create a snapshot, restart a service, list files, analyze a bug), " +
-			"end your answer with a JSON block: [[ACTION]]{\"cmd\":\"<command>\",\"reason\":\"<why>\"}[[/ACTION]]. " +
-			"One command per block; the system will confirm and run it. Otherwise answer normally. " +
-			"Allowed command classes: " + strings.Join(cfg.ExecAllow, ", ")
+		return actAndEvaluate + "Allowed command classes: " + strings.Join(cfg.ExecAllow, ", ")
 	case "console":
-		return "You may propose a shell command to execute (remote console). When the user asks " +
-			"to DO something, end your answer with a JSON block: " +
-			"[[ACTION]]{\"cmd\":\"<command>\",\"reason\":\"<why>\"}[[/ACTION]]. One command per block."
+		return actAndEvaluate + "(remote console: arbitrary shell)"
 	default:
 		return ""
 	}

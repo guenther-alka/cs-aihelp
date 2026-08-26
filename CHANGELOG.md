@@ -1,5 +1,31 @@
 # Changelog
 
+## (2026-08-26, Go daemon + Perl mirror -- requires a new binary release to take effect live) — exec/console: act, don't just explain
+
+- **Stronger exec-mode system-prompt instruction**: in `exec_access=exec`
+  ("act") or `exec_access=console`, the model is now explicitly told it
+  has *direct command execution available in this session* and must ACT
+  (emit an `[[ACTION]]{"cmd":...}[[/ACTION]]` block) when the user asks
+  it to DO or DETERMINE something, instead of writing prose instructions
+  for the user to run themselves. It's also told what happens next: the
+  command's output comes back to it as DATA on the next turn, and it
+  should read/evaluate that output and either propose the next command
+  or give the final answer -- not hand the raw output back to the user
+  to interpret. Example that motivated this: "ist samba oder ksmbd
+  installiert?" should now make the AI check itself (e.g. propose a
+  package/service query) rather than telling the user how to check.
+  Changed in both `go/app.go` (`execHintFor`, the actual code path live
+  traffic uses via the Go daemon) and the Perl mirror in
+  `data/menues/_lib/windows/aihelplib.pl` (`ai_exec_hint`, used by the
+  Perl test suite). No change to exec_mode/exec_allow/exec_deny gating
+  or the confirm-click requirement -- this only changes what the model
+  is told to attempt, not what it's permitted to run.
+- **Note**: unlike the prior Perl/JS-only entries below, this DOES touch
+  `go/app.go`, so the running `cs-aihelp.exe` binary only picks it up
+  after a new build + release + GUI download/update (the live daemon
+  currently serving requests still has the old, weaker wording until
+  then).
+
 ## (2026-08-26, Perl/JS/docs only -- no Go daemon change, no new binary release) — full-screen layout, act vs console docs
 
 - **Full-screen AI Helpdesk layout**: the toolbar (Provider/Mode/Actions
