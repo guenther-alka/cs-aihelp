@@ -2082,18 +2082,23 @@ sub ai_chat_page {
     my $quick = join(' | ', map { ai_esc($_) } @quick);
 
     print <<"EoH";
-<div id="aihelp_page" style="width:100%;height:calc(100vh - 150px);min-height:520px;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px">
+<div id="aihelp_page" style="width:100%;height:calc(100vh - 150px);min-height:0;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px">
   <div style="flex:1;display:flex;flex-direction:column;min-height:0">
-    <!-- cs_26.08.26_19 (Gea: "Toolbar soll immer unten sichtbar sein
-         (feste Hoehe). Ask und Answer Bereich teilen sich den Rest 1:3")
-         -- supersedes cs_26.08.26_17/_18: the toolbar now has flex:"0 0
-         auto" so it never grows/shrinks and always stays pinned at the
-         bottom with a fixed height; log:question now split 3:1 (log
-         flex:3, question flex:1) instead of the earlier 3:2. -->
+    <!-- cs_26.08.26_22 (Gea: "frage und antwort (je mit laufbalken) und
+         fester height fuer tools damit man alles inkl napp-it menues
+         sehen kann") -- supersedes cs_26.08.26_17/_18/_19: dropped the
+         outer page's min-height:520px, which could force the whole page
+         to overflow/scroll on short viewports and push the napp-it menu
+         bar out of view. Without that floor the flex layout always fits
+         inside calc(100vh - 150px): log and question keep shrinking
+         (each already scrolls internally -- log via overflow-y:auto, the
+         textarea natively) while the toolbar (flex:0 0 auto, never
+         shrinks) stays fully visible at a fixed height. Log:question
+         stays 3:1. -->
     <div id="aihelp_log" style="flex:3;overflow-y:auto;border:1px solid #888;border-radius:4px;padding:8px;background:#fff"></div>
     <div style="flex:1;display:flex;flex-direction:column;min-height:0;border:1px solid #888;border-radius:4px;padding:6px;background:#fff;margin:6px 0">
       <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask) -- Example: $quick</div>
-      <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent" placeholder="Question ..."></textarea>
+      <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent;overflow-y:auto" placeholder="Question ..."></textarea>
     </div>
     <div style="flex:0 0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
       <b>AI Helpdesk -- $member</b>
