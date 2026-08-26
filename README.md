@@ -6,7 +6,7 @@ grounded in the local documentation (`data/howto.ai/*.info`, light-RAG),
 optionally enriches the answer with a web search, and can be wired to a
 local or cloud LLM — with or without an API key.
 
-> **Version:** v1.1 (pre-release / release candidate) · **License:** BSD 2-Clause · **Platform:** frontend on
+> **Version:** v1.2.2 (stable) · **License:** BSD 2-Clause · **Platform:** frontend on
 > any napp-it cs OS (FreeBSD, illumos, Linux, macOS, Solaris, Windows); the Go
 > daemon is built for 8 targets (mswin/linux/illumos/solaris/freebsd/darwin).
 > Local free AI (Ollama) runs natively on **Linux/macOS/Windows**; on
@@ -14,12 +14,9 @@ local or cloud LLM — with or without an API key.
 > (`OLLAMA_BASE` / `provider=ollama` + endpoint) or an OpenAI-compatible
 > local server (e.g. llama.cpp).
 
-> **⚠ Pre-release note:** **v1.1 is published as the newest downloadable
-> release** on GitHub so it can be tested before the stable v1.1.0. It is a
-> **release candidate** — the feature set (Level-2 exec, two provider slots,
-> six CS tools with download/update, i18n UI) is complete and tested, but
-> final hardening/regression is still pending. Use it with care in production;
-> the stable path is **v1.0.2**. See [CHANGELOG.md](CHANGELOG.md) for details.
+> **v1.2.2 is the current stable release** on GitHub — the pre-release/
+> release-candidate phase (v1.1.x) ended with v1.2.0. See
+> [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ---
 
@@ -198,8 +195,7 @@ perl install.pl /opt/csweb-gui     # default target is /opt/csweb-gui
 **cs-aihelp is not bundled in napp-it cs.** The Go daemon binary is
 downloaded from GitHub via **System > CS Tools Download** ("download/update") — on
 first use the settings menu shows *"please download CS tools first"*. The
-newest release on GitHub is **v1.1 (pre-release / release candidate)** and
-will be fetched; it is tested but not yet the final v1.1.0. Only
+newest release on GitHub is fetched (currently **v1.2.2**, stable). Only
 the binary for the **frontend OS** is fetched; it is installed keeping the
 **OS structure** (`data/cs_server/tools/cs-aihelp/<platform>.<arch>/`), so
 `csweb-gui/data` can be copied to another OS — there the matching binary is

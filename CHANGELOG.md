@@ -31,6 +31,14 @@
   a hung backend from some OTHER cause (or a model ignoring the
   instruction) is still possible. A real fix would need a general timeout
   wrapper in `server.pl`'s command dispatcher, out of scope today.
+- **Full-screen layout fix (Perl/JS, shipped in the same tag)**: dropped
+  the outer `aihelp_page` div's `min-height:520px`, which could force
+  the whole page to scroll on short browser windows and push the
+  napp-it menu bar out of view. Log and question now each scroll
+  internally (own scrollbar) and shrink first when space is tight; the
+  toolbar (`flex:0 0 auto`) never shrinks and stays fully visible at a
+  fixed height. All three areas (answer, question, toolbar) are always
+  visible now, regardless of window size.
 
 ## v1.2.1 (2026-08-26) — exec/console: act, don't just explain
 
