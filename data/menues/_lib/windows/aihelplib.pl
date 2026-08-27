@@ -1701,8 +1701,27 @@ sub ai_chat_js {
     my $sub = sub { my $v = $_[0] // ''; $v =~ s/\\/\\\\/g; $v =~ s/'/\\'/g; return $v; };
     my $js = <<'EoJS';
 <script>
+// cs_26.08.27 (Gea: "koennen widget und fullpage unabhaengig voneinander
+// arbeiten?" -- answer was NO: this template is printed TWICE on the full
+// AI Helpdesk page, once with widget='page' and once with widget='popup'
+// (from ai_popup(), called right after this one). Both used to be plain
+// top-level <script> blocks -- var/function declarations in those attach
+// straight to `window`, so the SECOND block silently overwrote every
+// function and var from the first (same names), leaving the whole page
+// running on the popup's _aiPopup/_aiConv/_aiBusy state even for the
+// full-page's own buttons: wrong conversation cookie (both ended up on
+// aihelp_conv_popup), and _aiShowAction's "propose only" gate stuck on
+// the popup branch everywhere. Fix: wrap each instance in its own IIFE so
+// _aiPopup/_aiConv/_aiBusy/_aiTool and every function here are private to
+// THIS block -- only the handful of functions actually invoked from
+// onclick="..." HTML (which always resolves in the global scope, IIFE or
+// not) are exported, under a name namespaced by surface
+// (window._aiApi_page / window._aiApi_popup, see the bottom of this
+// function) so the two instances can never collide again.
+(function(){
 var _aiId='%%ID%%', _aiMember='%%MEMBER%%', _aiL1='%%L1%%', _aiL2='%%L2%%', _aiL3='%%L3%%', _aiConv='';
 var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%;
+var _aiNS=(_aiPopup?'popup':'page');   // this instance's registry namespace
 var _aiT={
   answering:'%%T_ANSWERING%%', error:'%%T_ERROR%%', settings:'%%T_SETTINGS%%',
   ratelimit:'%%T_RATELIMIT%%', proverr:'%%T_PROVERR%%', session:'%%T_SESSION%%',
@@ -1731,7 +1750,7 @@ function _aiErr(e){
 }
 function _aiAnswerHtml(d){
   var h='<div style="display:flex;align-items:flex-start"><div style="flex:1">'+d.answer+'</div>'
-    +'<button onclick="_aiCopy(this)" style="margin-left:8px;font-size:11px;padding:2px 8px" title="'+_aiT.copy+'">'+_aiT.copy+'</button></div>';
+    +'<button onclick="window._aiApi_'+_aiNS+'.copy(this)" style="margin-left:8px;font-size:11px;padding:2px 8px" title="'+_aiT.copy+'">'+_aiT.copy+'</button></div>';
   if(d.via){ h+='<div class="aihelp_v">via '+_aiEsc(d.via)+'</div>'; }
   if(d.sources && d.sources.length){ h+='<div class="aihelp_s">'+_aiT.sources+': '+_aiEsc(d.sources.join(', '))+'</div>'; }
   return h;
@@ -1935,7 +1954,7 @@ function _aiShowAction(log, action, tb){
   var cmdAttr=_aiEsc(action.cmd).replace(/\n/g,' ');
   var rsnAttr=_aiEsc(action.reason||'').replace(/\n/g,' ');
   var html='<div id="'+key+'">'
-    +'<button onclick="_aiExecById(\''+key+'\', this)" data-c="'+cmdAttr+'" data-r="'+rsnAttr+'" style="margin:2px;padding:4px 12px">'+_aiT.exec+'</button>'
+    +'<button onclick="window._aiApi_'+_aiNS+'.execById(\''+key+'\', this)" data-c="'+cmdAttr+'" data-r="'+rsnAttr+'" style="margin:2px;padding:4px 12px">'+_aiT.exec+'</button>'
     +'<button onclick="var el=document.getElementById(\''+key+'\');el.innerHTML=\'<span class=&quot;aihelp_s&quot;>'+_aiT.abort+'</span>\'" style="margin:2px;padding:4px 12px">'+_aiT.abort+'</button>'
     +'</div>';
   _aiAppend(log, html, 'aihelp_act');
@@ -2054,6 +2073,17 @@ function _aiPopupDragStart(ev){
   return ret;
 }
 _aiAutoLoad();
+// cs_26.08.27 -- registry export (see the IIFE-wrap comment at the top of
+// this function): only the functions actually invoked from onclick="..."/
+// onmousedown="..." HTML markup (which resolves in the global scope no
+// matter where it was printed from) need to leave this IIFE at all --
+// everything else here stays private to this one instance.
+window['_aiApi_'+_aiNS] = {
+  ask: _aiAsk, abort: _aiAbort, resume: _aiResume, newConv: _aiNew,
+  statusFetch: _aiStatusFetch, focus: _aiFocus, dragStart: _aiPopupDragStart,
+  copy: _aiCopy, execById: _aiExecById
+};
+})();
 </script>
 EoJS
     my $logid = ($widget eq 'popup') ? 'aihelp_p_log' : 'aihelp_log';
@@ -2103,6 +2133,15 @@ EoJS
 # the left of "Mode:"). Each button calls JS _aiStatusFetch(class),
 # defined in ai_chat_js().
 sub ai_status_buttons_html {
+    # cs_26.08.27 (Gea: "koennen widget und fullpage unabhaengig
+    # voneinander arbeiten?") -- $surface ('page'|'popup') picks which
+    # registry namespace (window._aiApi_page / window._aiApi_popup, see
+    # ai_chat_js()) the buttons dispatch through, so the widget's status
+    # buttons and the full page's status buttons never call into each
+    # other's state. Defaults to 'page' only as a defensive fallback --
+    # both call sites below now always pass it explicitly.
+    my ($surface) = @_;
+    $surface = 'page' unless defined $surface && $surface eq 'popup';
     # cs_26.08.27 (Gea final: "nein, statuszeile einzeilig mit 2x3
     # kleinen buttons links neben mode auswahl") -- fixed 2-row x
     # 3-column CSS grid (Pool/Disk/OS on row 1, CS/Jobs/Member on row 2)
@@ -2117,7 +2156,7 @@ sub ai_status_buttons_html {
     my $html = '<span style="display:inline-grid;grid-template-columns:repeat(3,auto);grid-auto-flow:row;gap:1px 3px;align-content:center">';
     for my $b (@b) {
         my ($cls, $lbl) = @$b;
-        $html .= "<button type=\"button\" onclick=\"_aiStatusFetch('$cls')\" title=\"status $cls\" style=\"padding:0 4px;font-size:9px;line-height:13px;white-space:nowrap\">$lbl</button>";
+        $html .= "<button type=\"button\" onclick=\"window._aiApi_$surface.statusFetch('$cls')\" title=\"status $cls\" style=\"padding:0 4px;font-size:9px;line-height:13px;white-space:nowrap\">$lbl</button>";
     }
     $html .= '</span>';
     return $html;
@@ -2159,7 +2198,7 @@ sub ai_chat_page {
                   ai_txt('ai_q_repl', 'Why is my replication failing?'),
                   ai_txt('ai_q_smb',  'How do I enable SMB shares?') );
     my $quick = join(' | ', map { ai_esc($_) } @quick);
-    my $status_btns = ai_status_buttons_html();   # cs_26.08.27 -- replaces "AI Helpdesk -- $member", sits left of "Mode:"
+    my $status_btns = ai_status_buttons_html('page');   # cs_26.08.27 -- replaces "AI Helpdesk -- $member", sits left of "Mode:"
 
     print <<"EoH";
 <div id="aihelp_page" style="width:100%;min-height:0;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px;overflow:hidden">
@@ -2206,15 +2245,14 @@ sub ai_chat_page {
       <option value="confirm"$confirm_sel>confirm</option>
       <option value="auto"$auto_sel>auto</option>
     </select>
-    <button onclick="_aiAsk('aihelp_log','aihelp_q')" style="padding:4px 10px">Ask</button>
-    <button onclick="_aiAbort()" style="padding:4px 10px" title="Stop the agentic loop">Abort</button>
-    <button onclick="_aiResume('aihelp_log')" style="padding:4px 10px" title="Load the last saved conversation">Resume</button>
-    <button onclick="_aiNew('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
+    <button onclick="window._aiApi_page.ask('aihelp_log','aihelp_q')" style="padding:4px 10px">Ask</button>
+    <button onclick="window._aiApi_page.abort()" style="padding:4px 10px" title="Stop the agentic loop">Abort</button>
+    <button onclick="window._aiApi_page.resume('aihelp_log')" style="padding:4px 10px" title="Load the last saved conversation">Resume</button>
+    <button onclick="window._aiApi_page.newConv('aihelp_log')" style="padding:4px 10px" title="Start a fresh conversation">New</button>
     <span style="color:#888;font-size:11px;margin-left:auto;white-space:normal">Mode: $mode_badge &nbsp;|&nbsp; exec_deny always applies. Answers use the napp-it docs (data/howto.ai).</span>
   </div>
 </div>
 <script>
-  _aiFocus('aihelp_q');
   (function(){
     function _aiFitPage(){
       var el = document.getElementById('aihelp_page');
@@ -2232,6 +2270,12 @@ EoH
     print ai_chat_js('page', $member, $l1, $l2, $l3);
     # demonstrate the context-sensitive floating popup on this page as well
     ai_popup($member, $l1, $l2, $l3);
+    # cs_26.08.27 -- moved from the small inline <script> above ai_chat_js():
+    # window._aiApi_page only exists once ai_chat_js('page',...) has printed
+    # and run its own <script> block, so the focus call has to come after
+    # it, not before (it silently threw "not defined" before this fix,
+    # same underlying bug class as the widget/full-page state coupling).
+    print "<script>window._aiApi_page.focus('aihelp_q');</script>\n";
 }
 
 ################  floating popup widget (RO-only, freely draggable, size cfg)
@@ -2259,10 +2303,10 @@ sub ai_popup {
     # textarea, Enter inserts a newline (like the full-screen page), so the
     # Ask button stays as the only way to send.
     my $q_ctl = ($ilines == 1)
-        ? "<input id=\"aihelp_p_q\" type=\"text\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();_aiAsk('aihelp_p_log','aihelp_p_q');}\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\">"
+        ? "<input id=\"aihelp_p_q\" type=\"text\" onkeydown=\"if(event.key==='Enter'){event.preventDefault();window._aiApi_popup.ask('aihelp_p_log','aihelp_p_q');}\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\">"
         : "<textarea id=\"aihelp_p_q\" rows=\"$ilines\" style=\"width:100%;padding:5px;box-sizing:border-box\" placeholder=\"Question ...\"></textarea>";
     my $ask_btn = ($ilines == 1) ? '' :
-        "<button id=\"aihelp_p_btn\" onclick=\"_aiAsk('aihelp_p_log','aihelp_p_q','aihelp_p_btn')\" style=\"padding:5px 10px\">Ask</button>\n      ";
+        "<button id=\"aihelp_p_btn\" onclick=\"window._aiApi_popup.ask('aihelp_p_log','aihelp_p_q','aihelp_p_btn')\" style=\"padding:5px 10px\">Ask</button>\n      ";
 
     print <<"EoP";
 <style>
@@ -2293,11 +2337,11 @@ EoP
     # removed entirely in favor of the status buttons; Gea follow-up
     # ("im widget fehlt der mode 1/2 selector") restored it -- both now
     # sit together in the same compact row, select first, buttons after.
-    my $status_btns = ai_status_buttons_html();
-    print "<button id=\"aihelp_btn\" title=\"Klick AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
+    my $status_btns = ai_status_buttons_html('popup');
+    print "<button id=\"aihelp_btn\" title=\"Klick AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';window._aiApi_popup.focus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
 <div id="aihelp_box">
-  <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Klick AI to show/hide widget"><span>Klick AI to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
+  <div id="aihelp_p_hdr" onmousedown="return window._aiApi_popup.dragStart(event)" title="Klick AI to show/hide widget"><span>Klick AI to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
     $q_ctl
@@ -2308,9 +2352,9 @@ EoP
       </select>
       $status_btns
       <span style="flex:1"></span>
-      $ask_btn<button onclick="_aiAbort()" style="padding:5px 8px" title="Stop the agentic loop">Abort</button>
-      <button onclick="_aiResume('aihelp_p_log')" style="padding:5px 8px" title="Load the last saved conversation">Resume</button>
-      <button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
+      $ask_btn<button onclick="window._aiApi_popup.abort()" style="padding:5px 8px" title="Stop the agentic loop">Abort</button>
+      <button onclick="window._aiApi_popup.resume('aihelp_p_log')" style="padding:5px 8px" title="Load the last saved conversation">Resume</button>
+      <button onclick="window._aiApi_popup.newConv('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
     </div>
   </div>
 </div>
