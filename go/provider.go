@@ -24,6 +24,24 @@ import (
 // one has been retired.
 const DefaultOpenRouterModel = "meta-llama/llama-3.1-8b-instruct:free"
 
+// answerMaxTokens caps the provider's response length.
+//
+// cs_26.08.27 (Gea: "es sollten auch groessere logs oder viele platten
+// funktionieren" -- follow-up to the "status disk" widget showing
+// "Sources:" and nothing else). Root cause: reasoning-capable models (e.g.
+// DeepSeek's "v4-flash") spend part of max_tokens on a hidden
+// "reasoning_content" phase before writing the visible "content" -- with
+// the old max_tokens=1024 and a sizeable status prompt (many disks / a
+// busy log dir), the whole budget was consumed by reasoning and 0 tokens
+// were left for the answer itself. HTTP 200, no error, answer="" -- the
+// widget just showed the RAG "Sources:" line from the done-event and
+// nothing else. Raised to 4096 so there is real headroom left after
+// reasoning; paired with a prompt-side cap in cs-aihelp.pl's action=status
+// handler (STATUS_AI_PROMPT_MAX) so the input itself also stays bounded
+// regardless of how many disks/how large the logs are -- max_tokens alone
+// cannot fix an unbounded input.
+const answerMaxTokens = 4096
+
 // freeModeError builds a specific, actionable error for mode=free when all
 // fallback legs (local Ollama, OpenRouter, Pollinations) failed -- instead of
 // one generic message, it reports what actually happened with each so the
@@ -135,7 +153,7 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 	client := &http.Client{}
 	if kind == "anthropic" {
 		body := map[string]any{
-			"model": model, "max_tokens": 1024, "system": system, "messages": msgs,
+			"model": model, "max_tokens": answerMaxTokens, "system": system, "messages": msgs,
 		}
 		hdr := map[string]string{
 			"x-api-key": cfg.APIKey, "anthropic-version": "2023-06-01",
@@ -162,7 +180,7 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 	// openai / ollama / any OpenAI-compatible endpoint
 	all := []chatMsg{{Role: "system", Content: system}}
 	all = append(all, msgs...)
-	body := map[string]any{"model": model, "messages": all, "max_tokens": 1024}
+	body := map[string]any{"model": model, "messages": all, "max_tokens": answerMaxTokens}
 	hdr := map[string]string{}
 	if kind != "ollama" && cfg.APIKey != "" {
 		hdr["Authorization"] = "Bearer " + cfg.APIKey
@@ -331,10 +349,27 @@ func providerAnswer(cfg *Config, system string, msgs []chatMsg, emit tokenEmitte
 		}
 	}
 	if emit != nil {
+		var a string
+		var err error
 		if kind == "ollama" {
-			return ollamaNDJSONStream(ep, model, system, msgs, emit)
+			a, err = ollamaNDJSONStream(ep, model, system, msgs, emit)
+		} else {
+			a, err = openaiSSEStream(ep, model, system, msgs, cfg.APIKey, emit)
 		}
-		return openaiSSEStream(ep, model, system, msgs, cfg.APIKey, emit)
+		if err == nil && a == "" {
+			// cs_26.08.27 (Gea: "es sollten auch groessere logs oder viele
+			// platten funktionieren") -- HTTP 200, no transport/API error,
+			// but zero content tokens (e.g. a reasoning model spent all of
+			// answerMaxTokens on hidden reasoning_content, see the comment
+			// on answerMaxTokens above). Previously this looked exactly
+			// like success with an empty answer: no error reached
+			// askInternal, so the widget rendered "Sources:" from the
+			// done-event and nothing else, with no indication anything
+			// went wrong. Surface it as an explicit error instead so it is
+			// never silent again, whatever future case still triggers it.
+			err = errors.New("empty provider response (model produced no visible output -- try again, or check max_tokens/model settings)")
+		}
+		return a, err
 	}
 	return callProvider(cfg, system, msgs)
 }
@@ -389,7 +424,7 @@ func ollamaNDJSONStream(ep, model, system string, msgs []chatMsg, emit tokenEmit
 func openaiSSEStream(ep, model, system string, msgs []chatMsg, apiKey string, emit tokenEmitter) (string, error) {
 	all := []chatMsg{{Role: "system", Content: system}}
 	all = append(all, msgs...)
-	b, _ := json.Marshal(map[string]any{"model": model, "messages": all, "max_tokens": 1024, "stream": true})
+	b, _ := json.Marshal(map[string]any{"model": model, "messages": all, "max_tokens": answerMaxTokens, "stream": true})
 	req, err := http.NewRequest(http.MethodPost, ep, bytes.NewReader(b))
 	if err != nil {
 		return "", err
@@ -524,7 +559,7 @@ func freeOpenRouter(cfg *Config, system string, msgs []chatMsg) (string, error) 
 	}
 	all := []chatMsg{{Role: "system", Content: system}}
 	all = append(all, msgs...)
-	body := map[string]any{"model": openRouterModel(cfg), "messages": all, "max_tokens": 1024}
+	body := map[string]any{"model": openRouterModel(cfg), "messages": all, "max_tokens": answerMaxTokens}
 	hdr := map[string]string{"Authorization": "Bearer " + cfg.OpenRouterKey}
 	b, st, err := postJSON(&http.Client{}, "https://openrouter.ai/api/v1/chat/completions", body, hdr, 120*time.Second)
 	if err != nil {

@@ -193,9 +193,37 @@ if (($in{action} // '') eq 'status') {
         exit;
     }
     my $label  = "analyse $class on $member";
+    # cs_26.08.27 (Gea: "es sollten auch groessere logs oder viele platten
+    # funktionieren") -- $out (esp. "disk": one full "smartctl -a" dump per
+    # detected device, status.pl's disk_status(), completely unbounded; also
+    # "cs": every *.log file in tmp/) can run to tens/hundreds of KB with
+    # many disks or a busy log dir. Sent to the AI as-is that either blows
+    # the provider's context, or -- observed live with DeepSeek's reasoning
+    # model on mode2 -- silently eats the whole max_tokens budget on the
+    # "thinking" phase before any visible answer, so the widget shows
+    # "Sources:" and nothing else (no error; $out itself was fine). Cap what
+    # goes INTO THE PROMPT at STATUS_AI_PROMPT_MAX bytes -- $out itself
+    # stays full-size in the JSON "output" field / console -- cutting
+    # cleanly on the last "=== ... ===" section marker (status.pl's
+    # per-device/per-file separator) inside the tail so a record is never
+    # sliced in half; falls back to a plain byte cut if no marker is found.
+    my $STATUS_AI_PROMPT_MAX = 12000;
+    my $out_for_ai = $out;
+    if (length($out_for_ai) > $STATUS_AI_PROMPT_MAX) {
+        my $cut = substr($out_for_ai, 0, $STATUS_AI_PROMPT_MAX);
+        if ($cut =~ /\A(.*\n)===[^\n]*===\n(?:(?!\n===).)*\z/s) {
+            $cut = $1;   # trim back to the end of the last COMPLETE section
+        }
+        my $shown = length($cut);
+        my $total = length($out_for_ai);
+        $out_for_ai = $cut
+            . "\n[... truncated for the AI prompt: $shown of $total bytes "
+            . "shown, rest omitted for length -- analyse only what is "
+            . "visible above and say so ...]\n";
+    }
     my $prompt = "Analyse the following '$class' status data for member $member. "
         . "Answer directly using ONLY this data -- do not propose or ask to run "
-        . "any further commands to gather more information.\n\n$out";
+        . "any further commands to gather more information.\n\n$out_for_ai";
     print "Content-Type: application/json\r\n\r\n"
         . encode_json({ ok => 1, output => $out, label => $label, prompt => $prompt }) . "\n";
     exit;

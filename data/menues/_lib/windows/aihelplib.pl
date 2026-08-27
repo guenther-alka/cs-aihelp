@@ -2294,10 +2294,10 @@ EoP
     # ("im widget fehlt der mode 1/2 selector") restored it -- both now
     # sit together in the same compact row, select first, buttons after.
     my $status_btns = ai_status_buttons_html();
-    print "<button id=\"aihelp_btn\" title=\"Click Ask AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
+    print "<button id=\"aihelp_btn\" title=\"Klick AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
 <div id="aihelp_box">
-  <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Click Ask AI to show/hide widget"><span>Click Ask AI to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
+  <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Klick AI to show/hide widget"><span>Klick AI to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
     $q_ctl
