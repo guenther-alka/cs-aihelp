@@ -176,8 +176,25 @@ if (($in{action} // '') eq 'status') {
     my $out = '';
     eval { $out = &socket("status $class", $ip, 60); };
     $out = "socket error: $@" if $@;
+    # cs_26.08.27 (Gea: "Klick z.B.auf pool soll direkt ohne rueckfrage
+    # &ask('status pool') aufrufen und an ki als 'analyse pool on
+    # $current{'os'}' uebergeben werden") -- this file's %current only
+    # carries member_ip (see comment above the live_state block below),
+    # so the member's os is parsed here from the same "on" identity
+    # string (family;hostname;os;cs ver;zfs ver;smb) that admin.pl
+    # populates into its own $current{'on'}. Built server-side so the
+    # widget/page JS doesn't need to know the field layout -- it just
+    # sends $prompt to the AI as-is, with no confirmation step.
+    my $os = '';
+    eval {
+        my $on = &socket('on', $ip, 6);
+        my @f = split(/;/, $on);
+        $os = $f[2] // '';
+    };
+    $os = 'unknown' if $os eq '' || $os =~ /^error::/;
+    my $prompt = "analyse $class on $os:\n$out";
     print "Content-Type: application/json\r\n\r\n"
-        . encode_json({ ok => 1, output => $out }) . "\n";
+        . encode_json({ ok => 1, output => $out, prompt => $prompt }) . "\n";
     exit;
 }
 

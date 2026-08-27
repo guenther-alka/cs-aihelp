@@ -1980,7 +1980,7 @@ function _aiStatusFetch(cls){
   .then(function(d){
     if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); }
     if(d && d.ok){
-      _aiCall(log, 'analyse data for '+cls+':\n'+d.output, []);
+      _aiCall(log, d.prompt || ('analyse '+cls+':\n'+d.output), []);
     } else {
       _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
     }

@@ -32,6 +32,17 @@
   toolbar rows so the status line stays a single line.
 - **Tests**: `perl -c` both files, `ai_compile_check.pl`,
   `run_tests.ps1` -- 87/87 passed after sync.
+- **Follow-up (same day)**: layout finalized to "statuszeile einzeilig
+  mit 2x3 kleinen buttons links neben mode auswahl" (see above). Also,
+  "Klick z.B. auf pool soll direkt ohne rueckfrage &ask('status pool')
+  aufrufen und an ki als 'analyse pool on $current{'os'}' uebergeben
+  werden" -- the button click already skipped any confirmation step
+  (`_aiStatusFetch()` calls `_aiCall()` directly); what changed is the
+  prompt text itself: `action=status` now also fetches `&socket('on',
+  $ip, 6)`, parses its `os` field, and returns a ready-made
+  `analyse <class> on <os>:\n<output>` prompt (`prompt` JSON field) so
+  the AI gets the member's OS as context, not just a generic "analyse
+  data for <class>" label. `_aiStatusFetch()` sends `d.prompt` as-is.
 
 ## (2026-08-26, Perl only) — fullscreen helpdesk: exact JS-computed page height
 
