@@ -176,25 +176,28 @@ if (($in{action} // '') eq 'status') {
     my $out = '';
     eval { $out = &socket("status $class", $ip, 60); };
     $out = "socket error: $@" if $@;
-    # cs_26.08.27 (Gea: "Klick z.B.auf pool soll direkt ohne rueckfrage
-    # &ask('status pool') aufrufen und an ki als 'analyse pool on
-    # $current{'os'}' uebergeben werden") -- this file's %current only
-    # carries member_ip (see comment above the live_state block below),
-    # so the member's os is parsed here from the same "on" identity
-    # string (family;hostname;os;cs ver;zfs ver;smb) that admin.pl
-    # populates into its own $current{'on'}. Built server-side so the
-    # widget/page JS doesn't need to know the field layout -- it just
-    # sends $prompt to the AI as-is, with no confirmation step.
-    my $os = '';
-    eval {
-        my $on = &socket('on', $ip, 6);
-        my @f = split(/;/, $on);
-        $os = $f[2] // '';
-    };
-    $os = 'unknown' if $os eq '' || $os =~ /^error::/;
-    my $prompt = "analyse $class on $os:\n$out";
+    # cs_26.08.27 (Gea, final wording: "im KI Fenster anzeigen: analyse
+    # pool on $in{'member'} / &exe('status pool') aufrufen (direkt ohne
+    # rueckfrage nach bestaetigung oder plan modus) / ergebnis an KI
+    # geben damit die die analyse der daten vornimmt") -- $member (=
+    # $in{member}, already parsed above) is the short display label; if
+    # the "status $class" call itself failed (e.g. server.pl not yet
+    # restarted with the new short command, or the socket call errored)
+    # we short-circuit here and return an error instead of asking the
+    # AI to "analyse" an error string -- that was causing the AI to
+    # propose its own diagnostic command plan and ask for confirmation
+    # to run it, which is exactly what this button must NOT do.
+    if ($out eq '' || $out =~ /^(socket error|error::|status\.pl not found)/i) {
+        print "Content-Type: application/json\r\n\r\n"
+            . encode_json({ ok => 0, error => "status $class failed: $out" }) . "\n";
+        exit;
+    }
+    my $label  = "analyse $class on $member";
+    my $prompt = "Analyse the following '$class' status data for member $member. "
+        . "Answer directly using ONLY this data -- do not propose or ask to run "
+        . "any further commands to gather more information.\n\n$out";
     print "Content-Type: application/json\r\n\r\n"
-        . encode_json({ ok => 1, output => $out, prompt => $prompt }) . "\n";
+        . encode_json({ ok => 1, output => $out, label => $label, prompt => $prompt }) . "\n";
     exit;
 }
 

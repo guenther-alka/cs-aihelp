@@ -43,6 +43,25 @@
   `analyse <class> on <os>:\n<output>` prompt (`prompt` JSON field) so
   the AI gets the member's OS as context, not just a generic "analyse
   data for <class>" label. `_aiStatusFetch()` sends `d.prompt` as-is.
+- **Follow-up 2 (same day)**: the AI was seen proposing its OWN
+  diagnostic command plan and asking the user to confirm running it,
+  instead of just analysing the injected status data -- because
+  server.pl had not yet been restarted (see below), `status $class`
+  itself was failing, and the AI was being asked to "analyse" an error
+  string. Fixed in `cs-aihelp.pl`'s `action=status`: (1) short-circuits
+  with `{ok:0,error:...}` when the underlying `status $class` call
+  itself failed/errored, instead of forwarding the error to the AI;
+  (2) `label` is now the short bubble text `"analyse <class> on
+  <member>"` (uses `$member`, i.e. `$in{member}`, not the OS), separate
+  from `prompt`, the full text actually sent to the AI, which now
+  explicitly instructs it to "answer directly using ONLY this data --
+  do not propose or ask to run any further commands". In `aihelplib.pl`,
+  `_aiCall(log, question, toolResults)` gained two optional params,
+  `dispQ` (shown in the "Q:" bubble instead of the full question/data)
+  and `noPlan` (bypasses the toolbar's act/plan prefix for this one
+  call so a status-button click is always answered directly, not held
+  back as a plan-only proposal); `_aiStatusFetch()` passes `d.label` /
+  `true` for these.
 
 ## (2026-08-26, Perl only) — fullscreen helpdesk: exact JS-computed page height
 

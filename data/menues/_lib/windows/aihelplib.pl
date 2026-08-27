@@ -1797,12 +1797,13 @@ function _aiAutoLoad(logId){
   })
   .catch(function(e){ /* auto-load is best-effort, stay silent on network errors */ });
 }
-function _aiCall(log, question, toolResults){
+function _aiCall(log, question, toolResults, dispQ, noPlan){
   if(_aiBusy) return;
   _aiBusy=true;
   var tb=_aiAccessMode();
   var q=question;
-  if(q && tb.plan){ q=_aiT.plan+q; }
+  if(q && tb.plan && !noPlan){ q=_aiT.plan+q; }
+  var shownQ=(dispQ!==undefined && dispQ!==null) ? dispQ : question;
   var wait=_aiAppend(log,'<i>'+_aiT.answering+'</i>','aihelp_w');
   _aiTimer(wait);
   var ansEl=null, done=false;
@@ -1866,9 +1867,9 @@ function _aiCall(log, question, toolResults){
   .then(function(r){
     var ct=(r.headers.get('content-type')||'').toLowerCase();
     if(ct.indexOf('application/json')>=0 || !r.body || !r.body.getReader){
-      return r.json().then(function(d){ if(question) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(question),'aihelp_q'); handleMeta(d); });
+      return r.json().then(function(d){ if(shownQ) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(shownQ),'aihelp_q'); handleMeta(d); });
     }
-    if(question) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(question),'aihelp_q');
+    if(shownQ) _aiAppend(log,'<b>'+_aiT.cmd+':</b> '+_aiEsc(shownQ),'aihelp_q');
     var reader=r.body.getReader(), dec=new TextDecoder(), buf='';
     function pump(){
       return reader.read().then(function(res){
@@ -1980,7 +1981,14 @@ function _aiStatusFetch(cls){
   .then(function(d){
     if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); }
     if(d && d.ok){
-      _aiCall(log, d.prompt || ('analyse '+cls+':\n'+d.output), []);
+      // cs_26.08.27 (Gea: "im KI Fenster anzeigen: analyse pool on
+      // $in{'member'} / direkt ohne rueckfrage nach bestaetigung oder
+      // plan modus") -- d.label is the short bubble text (no raw data
+      // dump), d.prompt is the full instruction+data sent to the AI;
+      // noPlan=true bypasses the toolbar's act/plan setting for this
+      // one call so it's always answered directly, not held back as a
+      // plan-only proposal.
+      _aiCall(log, d.prompt || ('analyse '+cls+':\n'+d.output), [], d.label || ('analyse '+cls), true);
     } else {
       _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
     }
