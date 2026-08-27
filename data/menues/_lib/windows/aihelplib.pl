@@ -50,7 +50,7 @@ use File::Path qw(make_path remove_tree);
 # central CS tools registry + GitHub download (System > CS Tools menu)
 { (my $self = __FILE__) =~ s{/[^/]+$}{}; require "$self/cstoolslib.pl"; }
 
-use vars qw($wpath $dpath $tpath %in %txt);
+use vars qw($wpath $dpath $tpath %in %txt %cfg);
 
 # i18n: read %txt (populated by get_language2 from the lang files, e.g.
 # lang/<lang>/ai_helpdesk.txt / help.txt) with an English fallback when the
@@ -1698,6 +1698,20 @@ sub ai_chat_js {
     $widget //= 'page';
     $member = $in{'member'} if (!defined $member || $member eq '') && exists $in{'member'};
     my $id = exists $in{'id'} ? ($in{'id'} // '') : '';
+    # cs_26.08.27 (Gea: "kann die KI die status-analyse in die eingestellte
+    # Sprache uebersetzen?") -- napp-it's configured UI language
+    # ($cfg{'select_lang'}, System > Settings) is a global already
+    # populated by admin.pl by the time this sub runs (both ai_chat_js()
+    # calls happen from inside the AI Helpdesk *menu page*, i.e. inside
+    # the admin.pl process) -- but cs-aihelp.pl (the JSON CGI the browser
+    # actually POSTs questions to) is a SEPARATE process that never loads
+    # napp-it's config, so it has no way to know the configured language
+    # on its own. Capture it here at render time and hand it to the
+    # client as %%LANG%% so the browser can pass it along on every
+    # request; see _aiStatusFetch()'s "lang:_aiLang" below and
+    # cs-aihelp.pl's action=status handler for the other end.
+    my $lang = $cfg{'select_lang'} // '';
+    $lang = 'en' if $lang eq '' || $lang eq 'MY!';   # MY! = custom/mixed menu texts, no single reliable language code
     my $sub = sub { my $v = $_[0] // ''; $v =~ s/\\/\\\\/g; $v =~ s/'/\\'/g; return $v; };
     my $js = <<'EoJS';
 <script>
@@ -1719,7 +1733,7 @@ sub ai_chat_js {
 // (window._aiApi_page / window._aiApi_popup, see the bottom of this
 // function) so the two instances can never collide again.
 (function(){
-var _aiId='%%ID%%', _aiMember='%%MEMBER%%', _aiL1='%%L1%%', _aiL2='%%L2%%', _aiL3='%%L3%%', _aiConv='';
+var _aiId='%%ID%%', _aiMember='%%MEMBER%%', _aiL1='%%L1%%', _aiL2='%%L2%%', _aiL3='%%L3%%', _aiLang='%%LANG%%', _aiConv='';
 var _aiTool=[], _aiBusy=false, _aiPopup=%%POPUP%%;
 var _aiNS=(_aiPopup?'popup':'page');   // this instance's registry namespace
 var _aiT={
@@ -1995,7 +2009,7 @@ function _aiStatusFetch(cls){
   var log=document.getElementById(_aiPopup?'aihelp_p_log':'aihelp_log');
   var wait=_aiAppend(log,'<i>'+_aiT.running+' (status '+_aiEsc(cls)+')</i>','aihelp_w');
   fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id:_aiId,member:_aiMember,action:'status',class:cls})})
+    body:JSON.stringify({id:_aiId,member:_aiMember,action:'status',class:cls,lang:_aiLang})})
   .then(function(r){ return r.json(); })
   .then(function(d){
     if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); }
@@ -2093,6 +2107,7 @@ EoJS
     $js =~ s/%%L1%%/$sub->($l1)/eg;
     $js =~ s/%%L2%%/$sub->($l2)/eg;
     $js =~ s/%%L3%%/$sub->($l3)/eg;
+    $js =~ s/%%LANG%%/$sub->($lang)/eg;
     $js =~ s/%%LOGID%%/$logid/g;
     $js =~ s/%%INPID%%/$inpid/g;
     $js =~ s/%%POPUP%%/(($widget eq 'popup') ? 1 : 0)/eg;

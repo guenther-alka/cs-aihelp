@@ -221,7 +221,32 @@ if (($in{action} // '') eq 'status') {
             . "shown, rest omitted for length -- analyse only what is "
             . "visible above and say so ...]\n";
     }
-    my $prompt = "Analyse the following '$class' status data for member $member. "
+    # cs_26.08.27 (Gea: "kann die KI die status-analyse in die eingestellte
+    # Sprache uebersetzen?") -- the generic "answer in the user's language"
+    # instruction in the system prompt (ai_system_prompt()/systemPrompt())
+    # only works when the model can INFER a language from user-typed text;
+    # this button sends a fixed, English, non-typed instruction plus mostly
+    # English technical data (smartctl etc.), so there was no signal to
+    # infer from and the model defaulted to English regardless of napp-it's
+    # configured UI language. aihelplib.pl's ai_chat_js() now hands the
+    # browser napp-it's configured language ($cfg{'select_lang'}) as
+    # _aiLang, sent here as "lang" -- turn it into an explicit instruction
+    # instead of leaving it to guesswork.
+    my %LANG_NAME = (
+        en => 'English',   de => 'German',   fr => 'French',    es => 'Spanish',
+        it => 'Italian',   nl => 'Dutch',    pt => 'Portuguese', pl => 'Polish',
+        ru => 'Russian',   cs => 'Czech',    cz => 'Czech',     tr => 'Turkish',
+        ja => 'Japanese',  jp => 'Japanese', zh => 'Chinese',   cn => 'Chinese',
+        sv => 'Swedish',   no => 'Norwegian', da => 'Danish',   fi => 'Finnish',
+    );
+    my $lang_code = lc(ai_trim($in{lang} // ''));
+    $lang_code =~ s/[^a-z]//g;   # whitelist letters only -- drops e.g. the "!" from a stray "my!"
+    $lang_code = 'en' if $lang_code eq '';
+    my $lang_name = $LANG_NAME{$lang_code} || $lang_code;
+    my $lang_instr = "Answer entirely in $lang_name (napp-it's configured UI language), "
+        . "regardless of what language the data below happens to be in.\n\n";
+    my $prompt = $lang_instr
+        . "Analyse the following '$class' status data for member $member. "
         . "Answer directly using ONLY this data -- do not propose or ask to run "
         . "any further commands to gather more information.\n\n$out_for_ai";
     print "Content-Type: application/json\r\n\r\n"
