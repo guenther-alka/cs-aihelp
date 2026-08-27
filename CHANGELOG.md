@@ -62,6 +62,26 @@
   call so a status-button click is always answered directly, not held
   back as a plan-only proposal); `_aiStatusFetch()` passes `d.label` /
   `true` for these.
+- **Follow-up 3 (same day)**: Gea: "im widget fehlt der mode 1/2
+  selector" -- the widget's Provider select (`#aihelp_p_provider`,
+  values mode1/mode2, read by `_aiAccessMode()`) had been removed
+  entirely in favour of the status buttons; restored, now sitting in
+  the same compact row as the buttons (select first, buttons after).
+- **Separate live-only fix, not in this repo** (server.pl/socketlib.pl
+  are not tracked here): after restarting server.pl, "status pool"
+  via the napp-it console still failed ("status : The term 'status' is
+  not recognized...", a raw PowerShell error). Root cause:
+  `socketlib.pl`'s `&socket()` decides whether to base64-wrap
+  (`b64cmd:`) a command based on a hardcoded whitelist regex of
+  status-class prefixes (`hostname|hn|sc|rh|on|hi|os|dn|ip|fn|alive|
+  stat|mem|mver|monitorupdate`) -- it has `stat`, not `status`, and
+  `stat\b` does not match `status pool` (no word boundary between
+  "stat" and "us"), so the command got base64-encoded and arrived at
+  server.pl as `b64cmd:...`, one step before server.pl's own
+  `if ($q =~ /^status\s+.../)` check (which runs before the `b64cmd:`
+  decode). Fixed by adding `status` to the same whitelist regex in all
+  3 places in `socketlib.pl`'s `&socket()`. See changelog.txt for the
+  full writeup (this file lives outside the cs-aihelp-src repo).
 
 ## (2026-08-26, Perl only) — fullscreen helpdesk: exact JS-computed page height
 

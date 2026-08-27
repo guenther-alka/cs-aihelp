@@ -2285,14 +2285,14 @@ sub ai_popup {
 </style>
 EoP
     # cs_26.08.27 (Gea: "Text provider entfernen, dafuer 6 kleine buttons
-    # (2reihen, 3 spalten) vor die mode auswahl setzen" + "In widget
-    # headline schreiben: 'klick on ASK AI to show/hide widget'") -- the
-    # widget never had a separate act/plan "Mode" select of its own (only
-    # the full page does); its "Provider" select (mode1/mode2) is the
-    # closest thing to a mode selector here (_aiAccessMode() reads it as
-    # plan/act), so the 6 status buttons take its place. _aiAccessMode()
-    # already null-checks the element, so removing it entirely (provider
-    # silently defaults to 'plan') is safe.
+    # ... vor die mode auswahl setzen" + "In widget headline schreiben:
+    # 'klick on ASK AI to show/hide widget'") -- the widget never had a
+    # separate act/plan "Mode" select of its own (only the full page
+    # does); its "Provider" select (mode1/mode2) is the closest thing to
+    # a mode selector here (_aiAccessMode() reads it as plan/act). First
+    # removed entirely in favor of the status buttons; Gea follow-up
+    # ("im widget fehlt der mode 1/2 selector") restored it -- both now
+    # sit together in the same compact row, select first, buttons after.
     my $status_btns = ai_status_buttons_html();
     print "<button id=\"aihelp_btn\" title=\"Click Ask AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
@@ -2302,6 +2302,10 @@ EoP
   <div id="aihelp_p_foot">
     $q_ctl
     <div style="margin-top:4px;display:flex;align-items:center;flex-wrap:nowrap;overflow-x:auto;gap:6px">
+      <select id="aihelp_p_provider" style="font-size:11px;padding:1px" title="Provider slot (mode1/mode2)">
+        <option value="mode1">mode1</option>
+        <option value="mode2">mode2</option>
+      </select>
       $status_btns
       <span style="flex:1"></span>
       $ask_btn<button onclick="_aiAbort()" style="padding:5px 8px" title="Stop the agentic loop">Abort</button>
