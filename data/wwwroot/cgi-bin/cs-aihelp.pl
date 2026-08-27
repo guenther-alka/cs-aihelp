@@ -157,6 +157,30 @@ if (($in{action} // '') eq 'resume') {
     exit;
 }
 
+# ---- action: status (short-command status.pl fetch for the toolbar/
+# widget buttons) ----------------------------------------------------------
+# cs_26.08.27 (Gea: 6 Kurzbefehl-Buttons Pool/Disk/OS/CS/Jobs/Member, die
+# server.pl's "status xxx" short command abfragen und das Ergebnis an die
+# KI weiterleiten). Session-gated like every action here, but deliberately
+# NOT run through ai_exec_allowed()/exec_access -- "status xxx" is a fixed,
+# non-AI-composed command set (see data/howto.ai/status.info section 8),
+# same trust class as the "load"/"resume" actions right above.
+if (($in{action} // '') eq 'status') {
+    my $class = $in{class} // '';
+    unless ($class =~ /^(pool|disk|os|cs|jobs|member)$/) {
+        print "Content-Type: application/json\r\n\r\n"
+            . encode_json({ ok => 0, error => 'invalid status class' }) . "\n";
+        exit;
+    }
+    my $ip = $current{member_ip} // '127.0.0.1';
+    my $out = '';
+    eval { $out = &socket("status $class", $ip, 60); };
+    $out = "socket error: $@" if $@;
+    print "Content-Type: application/json\r\n\r\n"
+        . encode_json({ ok => 1, output => $out }) . "\n";
+    exit;
+}
+
 my $question = $in{question} // '';
 my $has_tool = $in{tool_results} && ref $in{tool_results} eq 'ARRAY' && @{$in{tool_results}};
 if ($question =~ /^\s*$/ && !$has_tool) {
@@ -165,12 +189,25 @@ if ($question =~ /^\s*$/ && !$has_tool) {
     exit;
 }
 
-# ---- Stufe 1: optional read-only live state ----------------------------
+# ---- live state: member identity (always) + Stufe 1 optional diagnostics --
 my %aicfg = ai_cfg_read();
-my $live_state = '';
+my $ip = $current{member_ip} // '127.0.0.1';
+my @parts;
+
+# cs_26.08.27 (Gea: "immer current{'on'} an ki mit uebergeben") -- member
+# identity/version info (family;hostname;os;cs ver;zfs ver;smb) always goes
+# to the AI as live-state DATA, on every question, regardless of the
+# tool_use=yes/no Stufe-1 setting below. Mirrors admin.pl's own
+# $current{'on'}=&socket('on',...) call (see admin.pl ~line 1068) -- but
+# freshly fetched here, since this CGI is a separate process with its own
+# %current, not the one admin.pl already populated for the page request.
+eval {
+    my $on = &socket('on', $ip, 6);
+    $on =~ s/\s+$//;
+    push @parts, "member on: $on" if $on =~ /\S/ && $on !~ /^error::/;
+};
+
 if ((ai_trim($aicfg{tool_use} // 'no')) eq 'yes') {
-    my $ip = $current{member_ip} // '127.0.0.1';
-    my @parts;
     eval {
         my $hn = &socket("hostname", $ip);
         $hn =~ s/\s+$//;
@@ -181,9 +218,9 @@ if ((ai_trim($aicfg{tool_use} // 'no')) eq 'yes') {
         $zp =~ s/\s+$//;
         push @parts, "zpool list:\n$zp" if $zp =~ /\S/ && $zp !~ /^error::/;
     };
-    $live_state = join("\n", @parts);
-    $live_state = substr($live_state, 0, 4000) if length($live_state) > 4000;
 }
+my $live_state = join("\n", @parts);
+$live_state = substr($live_state, 0, 4000) if length($live_state) > 4000;
 
 # ---- menu context -------------------------------------------------------
 my $context = '';

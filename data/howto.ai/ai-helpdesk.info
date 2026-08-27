@@ -160,10 +160,24 @@ COMMUNICATION / UX
   saved conversation of the member), New (start fresh). Enter inserts a
   newline; sending happens only via the Ask button (or the quick-question
   buttons). Quick questions, copy button, elapsed-time indicator.
+- Status short-command buttons (cs_26.08.27, small flex-wrap buttons, same
+  ai_status_buttons_html() on both surfaces -- full page: in the toolbar,
+  to the left of "Mode:", in place of the old "AI Helpdesk -- $member"
+  label; widget: in the same row as Abort/Resume/New, to their left, in
+  place of the removed "Provider" select): 6 buttons Pool/Disk/OS/CS/Jobs/
+  Member. Each calls JS _aiStatusFetch(class) -> POST cs-aihelp.pl
+  {action:'status', class} -> server.pl's "status <class>" short command
+  (status.pl; see status.info) -> raw text result sent to the AI as a
+  normal question: "analyse data for <class>:\n<output>". This is a fixed,
+  non-AI-composed command set (see status.info section 8) -- NOT routed
+  through cs-aihelp-exec.pl / ai_exec_allowed() / exec_access, so it works
+  regardless of the configured exec_access/exec_mode.
 - Floating popup (call &ai_popup(); from any action.pl): draggable (title
-  bar shows a "click to show/hide" hint), [x] closes it, provider select
-  mode1|mode2 placed right before New, read-only (no exec); sends the
-  current menu path (l1/l2/l3) + member as context (context-sensitive help).
+  bar reads "Click Ask AI to show/hide widget", cs_26.08.27), [x] closes
+  it, the same 6 status buttons (see above) in the same row as Abort/
+  Resume/New, to their left; read-only chat itself (no exec -- the widget
+  has no act/plan mode select); sends the current menu path (l1/l2/l3) +
+  member as context (context-sensitive help).
   widget_input_lines=1 (default): single-line input, no Ask button -- Enter
   submits directly. widget_input_lines>1: textarea, Enter inserts a newline
   (like the full-screen page), Ask button stays as the way to send.
@@ -183,6 +197,22 @@ COMMUNICATION / UX
   { conv, sources, via, action, provider_use, mode }.
 - action=resume (no question) -> proxied to the Go daemon /resume, returns
   the NEWEST saved conversation of the member (used by the Resume button).
+- action=status (cs_26.08.27, {action:'status', class}) -> validates class
+  against pool|disk|os|cs|jobs|member, calls server.pl's "status <class>"
+  short command over the existing &socket() channel (6s "on" fetch below
+  reuses the same channel), returns { ok, output } as plain text -- no
+  exec_access gating (see the status-button bullet above). Used by the 6
+  status buttons; not currently called automatically by the AI itself.
+- live_state (cs_26.08.27, "immer current{'on'} an die KI uebergeben"):
+  on EVERY question (not just tool_use=yes), cs-aihelp.pl fetches
+  &socket('on', member_ip, 6) fresh (mirrors admin.pl's own
+  $current{'on'}=&socket('on',...) at page-load time -- but cs-aihelp.pl is
+  a separate CGI process with its own %current, so it re-fetches rather
+  than reusing admin.pl's) and adds it to live_state as "member on: ..."
+  (family;hostname;os;cs ver;zfs ver;smb). This gives the AI the member's
+  identity/version on every answer without the user having to ask. The
+  deeper tool_use=yes diagnostics (hostname, zpool list) still stay opt-in
+  on top of this.
 - Daemon must be running: start/stop under System > Services > AI Helpdesk
   (autostart at boot). If it is down, the CGI returns a clear error.
 - i18n: simple field labels stay English (Basisregel); explanatory texts and

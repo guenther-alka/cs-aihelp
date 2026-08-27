@@ -1,5 +1,38 @@
 # Changelog
 
+## (2026-08-27, Perl only) -- AI Helpdesk: status short-command buttons + always-on member context
+
+- **Trigger**: a multi-part request to (1) always pass member identity
+  (`current{'on'}`) to the AI on every `/ask` call, and (2) replace the
+  widget's "Provider" select and the full page's "AI Helpdesk --
+  <member>" label with 6 small status buttons (Pool/Disk/OS/CS/Jobs/
+  Member) that call server.pl's new "status xxx" short command (see
+  changelog.txt / status.info -- that server.pl/status.pl work is not
+  part of this repo) and feed the result back to the AI as "analyse
+  data for <class>: ...".
+- **cs-aihelp.pl**: new `action=status` endpoint -- session-gated,
+  validates `class` against `pool|disk|os|cs|jobs|member`, calls
+  `&socket("status <class>", $ip, 60)` and returns the raw output as
+  JSON. Deliberately bypasses the `ai_exec_allowed()`/exec_access
+  pipeline, same trust class as the existing fixed hi/on/mver short
+  commands. Also: `live_state` now always includes `member on: ...`
+  (from `&socket('on', $ip, 6)`), independent of `tool_use=yes`.
+- **aihelplib.pl**: new shared `ai_status_buttons_html()` producing a
+  compact 2-row x 3-column CSS grid of small buttons, and new JS
+  `_aiStatusFetch(cls)` (in `ai_chat_js()`) that POSTs `action=status`
+  and forwards the answer into the chat log via the normal ask flow.
+  Widget (`ai_popup()`): Provider select removed, buttons placed in the
+  same row as Abort/Resume/New; header text changed to "Click Ask AI to
+  show/hide widget" (also added as the floating toggle button's title).
+  Full page (`ai_chat_page()`): "AI Helpdesk -- <member>" label removed,
+  buttons placed inline before "Mode:"; iterated per feedback ("toolbar
+  einzeilig", "MIT & KLEINEN buttons links neben mode auswahl", finally
+  "statuszeile einzeilig mit 2x3 kleinen buttons links neben mode
+  auswahl") to a fixed small 2x3 grid with `flex-wrap:nowrap` on both
+  toolbar rows so the status line stays a single line.
+- **Tests**: `perl -c` both files, `ai_compile_check.pl`,
+  `run_tests.ps1` -- 87/87 passed after sync.
+
 ## (2026-08-26, Perl only) — fullscreen helpdesk: exact JS-computed page height
 
 - **Trigger**: "Help > AI Helpdesk sollte nach reload die ganze seite inkl

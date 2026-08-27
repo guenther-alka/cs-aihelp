@@ -1964,6 +1964,29 @@ function _aiExec(log, action){
   .catch(function(e){ if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
 }
 function _aiAbort(){ _aiBusy=false; }
+// cs_26.08.27 (Gea: 6 Kurzbefehl-Buttons Pool/Disk/OS/CS/Jobs/Member) --
+// fetch server.pl's "status <cls>" short command via cs-aihelp.pl's new
+// action=status (session-gated, NOT the exec_access/exec_deny pipeline --
+// see status.info section 8's trust model), then hand the raw result to
+// the AI as a normal question, exactly as Gea specified: "analyse data
+// for <cls>:".
+function _aiStatusFetch(cls){
+  if(_aiBusy) return;
+  var log=document.getElementById(_aiPopup?'aihelp_p_log':'aihelp_log');
+  var wait=_aiAppend(log,'<i>'+_aiT.running+' (status '+_aiEsc(cls)+')</i>','aihelp_w');
+  fetch('/cgi-bin/cs-aihelp.pl',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id:_aiId,member:_aiMember,action:'status',class:cls})})
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); }
+    if(d && d.ok){
+      _aiCall(log, 'analyse data for '+cls+':\n'+d.output, []);
+    } else {
+      _aiAppend(log,'<span style="color:#a00">'+_aiErr(d&&d.error)+'</span>','aihelp_e');
+    }
+  })
+  .catch(function(e){ if(wait && wait.parentNode){ wait.parentNode.removeChild(wait); } _aiAppend(log,'<span style="color:#a00">'+_aiT.error+': '+_aiEsc(e)+'</span>','aihelp_e'); });
+}
 function _aiNew(logId){ _aiConv=''; _aiTool=[]; _aiBusy=false; _aiCookieSet(_aiCookieName(), ''); var log=document.getElementById(logId); if(log){ log.innerHTML=''; } }
 function _aiResume(logId){
   var log=document.getElementById(logId||'%%LOGID%%');
@@ -2065,6 +2088,33 @@ EoJS
     return $js;
 }
 
+################  status short-command buttons (cs_26.08.27, Gea: 6 kleine
+# Buttons Pool/Disk/OS/CS/Jobs/Member, die server.pl's "status xxx" short
+# command abfragen -- shared by both the widget (in the same row as
+# Abort/Resume/New, to their left) and the full page (in the toolbar, to
+# the left of "Mode:"). Each button calls JS _aiStatusFetch(class),
+# defined in ai_chat_js().
+sub ai_status_buttons_html {
+    # cs_26.08.27 (Gea final: "nein, statuszeile einzeilig mit 2x3
+    # kleinen buttons links neben mode auswahl") -- fixed 2-row x
+    # 3-column CSS grid (Pool/Disk/OS on row 1, CS/Jobs/Member on row 2)
+    # of very small buttons, sized so the two short rows together stay
+    # about as tall as one normal toolbar row; combined with
+    # align-items:center + flex-wrap:nowrap on the surrounding toolbar
+    # row, this grid block sits inline to the left of "Mode:" (full
+    # page) / Abort-Resume-New (widget) without breaking that row onto
+    # two lines -- i.e. the status line itself stays "einzeilig".
+    my @b = (['pool','Pool'], ['disk','Disk'], ['os','OS'],
+              ['cs','CS'],   ['jobs','Jobs'], ['member','Member']);
+    my $html = '<span style="display:inline-grid;grid-template-columns:repeat(3,auto);grid-auto-flow:row;gap:1px 3px;align-content:center">';
+    for my $b (@b) {
+        my ($cls, $lbl) = @$b;
+        $html .= "<button type=\"button\" onclick=\"_aiStatusFetch('$cls')\" title=\"status $cls\" style=\"padding:0 4px;font-size:9px;line-height:13px;white-space:nowrap\">$lbl</button>";
+    }
+    $html .= '</span>';
+    return $html;
+}
+
 ################  full chat page (05_Help > AI Helpdesk) -- 100% w/h, 2:3
 sub ai_chat_page {
     my ($member, $l1, $l2, $l3) = @_;
@@ -2101,6 +2151,7 @@ sub ai_chat_page {
                   ai_txt('ai_q_repl', 'Why is my replication failing?'),
                   ai_txt('ai_q_smb',  'How do I enable SMB shares?') );
     my $quick = join(' | ', map { ai_esc($_) } @quick);
+    my $status_btns = ai_status_buttons_html();   # cs_26.08.27 -- replaces "AI Helpdesk -- $member", sits left of "Mode:"
 
     print <<"EoH";
 <div id="aihelp_page" style="width:100%;min-height:0;display:flex;flex-direction:column;font-family:sans-serif;font-size:13px;overflow:hidden">
@@ -2129,13 +2180,13 @@ sub ai_chat_page {
     <div style="font-size:11px;color:#888;margin-bottom:2px">Question (Enter = new line, send via Ask) -- Example: $quick</div>
     <textarea id="aihelp_q" style="flex:1;resize:none;border:none;outline:none;font-family:sans-serif;font-size:13px;background:transparent;overflow-y:auto" placeholder="Question ..."></textarea>
   </div>
-  <div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
-    <b>AI Helpdesk -- $member</b>
+  <div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:nowrap;overflow-x:auto;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
     <span style="color:#888;font-size:12px">Provider:</span>
     <select id="aihelp_provider" style="font-size:12px">
       <option value="mode1">mode1</option>
       <option value="mode2">mode2</option>
     </select>
+    $status_btns
     <span style="color:#888;font-size:12px">Mode:</span>
     <select id="aihelp_amode" style="font-size:12px">
       <option value="plan">plan (ro)</option>
@@ -2225,19 +2276,26 @@ sub ai_popup {
 .aihelp_act{margin:4px 0}
 </style>
 EoP
-    print "<button id=\"aihelp_btn\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
+    # cs_26.08.27 (Gea: "Text provider entfernen, dafuer 6 kleine buttons
+    # (2reihen, 3 spalten) vor die mode auswahl setzen" + "In widget
+    # headline schreiben: 'klick on ASK AI to show/hide widget'") -- the
+    # widget never had a separate act/plan "Mode" select of its own (only
+    # the full page does); its "Provider" select (mode1/mode2) is the
+    # closest thing to a mode selector here (_aiAccessMode() reads it as
+    # plan/act), so the 6 status buttons take its place. _aiAccessMode()
+    # already null-checks the element, so removing it entirely (provider
+    # silently defaults to 'plan') is safe.
+    my $status_btns = ai_status_buttons_html();
+    print "<button id=\"aihelp_btn\" title=\"Click Ask AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';_aiFocus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
 <div id="aihelp_box">
-  <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Click Ask AI again to hide this widget"><span>Click Ask AI again to hide this widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
+  <div id="aihelp_p_hdr" onmousedown="return _aiPopupDragStart(event)" title="Click Ask AI to show/hide widget"><span>Click Ask AI to show/hide widget</span><span style="font-weight:normal;cursor:pointer;font-size:14px;padding:0 4px" onclick="var b=document.getElementById('aihelp_box');if(b){b.style.display='none';}" title="Close">&#10005;</span></div>
   <div id="aihelp_p_log"></div>
   <div id="aihelp_p_foot">
     $q_ctl
-    <div style="margin-top:4px;display:flex;align-items:center;justify-content:flex-end;gap:6px">
-      <span style="font-size:11px;color:#888">Provider:</span>
-      <select id="aihelp_p_provider" style="font-size:11px">
-        <option value="mode1">mode1</option>
-        <option value="mode2">mode2</option>
-      </select>
+    <div style="margin-top:4px;display:flex;align-items:center;flex-wrap:nowrap;overflow-x:auto;gap:6px">
+      $status_btns
+      <span style="flex:1"></span>
       $ask_btn<button onclick="_aiAbort()" style="padding:5px 8px" title="Stop the agentic loop">Abort</button>
       <button onclick="_aiResume('aihelp_p_log')" style="padding:5px 8px" title="Load the last saved conversation">Resume</button>
       <button onclick="_aiNew('aihelp_p_log')" style="padding:5px 8px" title="New conversation">New</button>
