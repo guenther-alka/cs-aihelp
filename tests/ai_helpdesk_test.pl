@@ -72,19 +72,28 @@ my $rp = ai_resolve(%cfg_prov);
 ok($rp->{endpoint} eq 'http://127.0.0.1:11434/api/chat', "resolve: ollama default endpoint (got $rp->{endpoint})");
 ok($rp->{model} eq 'llama3.1', "resolve: ollama default model (got $rp->{model})");
 
-# ---- 4b. provider slots (v1.1, Cline-style): plan vs act ----
+# ---- 4b. provider slots (p1/p2/p3, cs_26.08.29) ----
 my %cfg_slot = ( %cfg, mode => 'provider', provider => 'openai', endpoint => 'https://plan.example/chat',
-    mode2 => 'provider', provider2 => 'anthropic', endpoint2 => 'https://act.example/chat', model2 => 'act-model' );
-my $rp1 = ai_resolve(slot => 'plan', %cfg_slot);
-ok($rp1->{endpoint} eq 'https://plan.example/chat', "resolve: plan slot uses slot 1 (got $rp1->{endpoint})");
-my $rp2 = ai_resolve(slot => 'act', %cfg_slot);
+    mode2 => 'provider', provider2 => 'anthropic', endpoint2 => 'https://act.example/chat', model2 => 'act-model',
+    mode3 => 'provider', provider3 => 'openai', endpoint3 => 'https://vision.example/chat', model3 => 'vision-model' );
+my $rp1 = ai_resolve(slot => 'p1', %cfg_slot);
+ok($rp1->{endpoint} eq 'https://plan.example/chat', "resolve: p1 slot uses slot 1 (got $rp1->{endpoint})");
+my $rp2 = ai_resolve(slot => 'p2', %cfg_slot);
 ok($rp2->{provider} eq 'anthropic' && $rp2->{endpoint} eq 'https://act.example/chat',
-   "resolve: act slot uses slot 2 (got $rp2->{provider} / $rp2->{endpoint})");
-my $rp3 = ai_resolve(slot => 'act', %cfg);   # defaults: mode2 empty
-ok($rp3->{endpoint} eq 'http://127.0.0.1:11434', "resolve: act with empty mode2 falls back to slot 1 (got $rp3->{endpoint})");
+   "resolve: p2 slot uses slot 2 (got $rp2->{provider} / $rp2->{endpoint})");
+my $rp3 = ai_resolve(slot => 'p2', %cfg);   # defaults: mode2 empty
+ok($rp3->{endpoint} eq 'http://127.0.0.1:11434', "resolve: p2 with empty mode2 falls back to slot 1 (got $rp3->{endpoint})");
 my %cfg_m2off = ( %cfg, mode2 => 'off' );
-my $rp4 = ai_resolve(slot => 'act', %cfg_m2off);
+my $rp4 = ai_resolve(slot => 'p2', %cfg_m2off);
 ok($rp4->{endpoint} eq 'http://127.0.0.1:11434', 'resolve: mode2=off falls back to slot 1');
+# p3 with configured mode3 -> slot 3 (strict)
+my $rp5 = ai_resolve(slot => 'p3', %cfg_slot);
+ok($rp5->{provider} eq 'openai' && $rp5->{endpoint} eq 'https://vision.example/chat',
+   "resolve: p3 slot uses slot 3 (got $rp5->{provider} / $rp5->{endpoint})");
+# p3 with empty mode3 -> undef ("not configured", no fallback to slot 1)
+ok(!defined ai_resolve(slot => 'p3', %cfg), 'resolve: p3 with empty mode3 -> undef (no fallback)');
+my %cfg_m3off = ( %cfg, mode3 => 'off' );
+ok(!defined ai_resolve(slot => 'p3', %cfg_m3off), 'resolve: mode3=off -> undef (no fallback)');
 
 # ---- 5. light-RAG over data/howto.ai ----
 my @docs = ai_retrieve('wie aktiviere ich SMB shares');
