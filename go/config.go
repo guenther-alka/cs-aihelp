@@ -42,6 +42,15 @@ type Config struct {
 	APIKey2    string
 	FreeModel2 string
 
+	// slot 3 / vision provider (Provider3, cs_26.08.29) -- image analysis
+	// (cs-imageindex) and a third chat provider slot. Strict: empty/off
+	// mode3 = "not configured" (no fallback to slot 1, unlike slot 2).
+	Mode3      string
+	Provider3  string
+	Endpoint3  string
+	Model3     string
+	APIKey3    string
+
 	// research
 	Research    string // off | ddg | api
 	ResearchMax int
@@ -170,6 +179,16 @@ func LoadConfig(path string) (*Config, error) {
 			cfg.APIKey2 = v
 		case "free_model2":
 			cfg.FreeModel2 = v
+		case "mode3":
+			cfg.Mode3 = v
+		case "provider3":
+			cfg.Provider3 = v
+		case "endpoint3":
+			cfg.Endpoint3 = v
+		case "model3":
+			cfg.Model3 = v
+		case "api_key3":
+			cfg.APIKey3 = v
 		case "free_model":
 			cfg.FreeModel = v
 		case "openrouter_key":
@@ -279,6 +298,11 @@ func (c *Config) Save() error {
 	fw("model2", c.Model2)
 	fw("api_key2", c.APIKey2)
 	fw("free_model2", c.FreeModel2)
+	fw("mode3", c.Mode3)
+	fw("provider3", c.Provider3)
+	fw("endpoint3", c.Endpoint3)
+	fw("model3", c.Model3)
+	fw("api_key3", c.APIKey3)
 	fw("fallback", c.Fallback)
 	fw("tool_use", yn(c.ToolUse))
 	fw("max_context", fmt.Sprintf("%d", c.MaxContext))

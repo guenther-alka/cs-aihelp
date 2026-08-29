@@ -66,6 +66,19 @@ sub my_action {
         $kv{model2}     = ai_trim($in{'cfg_model2'}    // '');
         $kv{api_key2}   = ai_trim($in{'cfg_api_key2'}  // '');
         $kv{free_model2}= ai_trim($in{'cfg_free_model2'} // '');
+        # Provider3 = vision provider for the Media Indexer job (cs-imageindex),
+        # same layout as Provider1/2 (mode3/provider3 hidden fields + key
+        # popup). Empty api_key3 keeps the current value (key store fallback:
+        # cs-aihelp-provider-keys.txt, see job-index.pl vision_provider3_cfg).
+        $kv{mode3}      = ai_trim($in{'cfg_mode3'}      // '');
+        $kv{provider3}  = ai_trim($in{'cfg_provider3'}  // 'openai');
+        $kv{endpoint3}  = ai_trim($in{'cfg_endpoint3'}  // '');
+        $kv{model3}     = ai_trim($in{'cfg_model3'}     // '');
+        # cs_26.08.29: Provider3 API key behaves like Provider1/2 -- a new key
+        # from the popup is persisted to the per-endpoint key store AND the
+        # config; empty keeps the key-store value for endpoint3 / current key.
+        # (key-store save/lookup below, after $preset_name_for is defined)
+        $kv{api_key3}   = ai_trim($in{'cfg_api_key3'}   // '');
         $kv{exec_mode}  = ai_trim($in{'cfg_exec_mode'} // 'confirm');
         $kv{exec_access}= ai_trim($in{'cfg_exec_access'} // 'ro');
         $kv{exec_allow} = ai_trim($in{'cfg_exec_allow'} // '');
@@ -136,6 +149,12 @@ sub my_action {
             my $saved2 = ai_provider_key_lookup($kv{endpoint2});
             $kv{api_key2} = ($saved2 ne '') ? $saved2 : ($aicfg{api_key2} // '');
         }
+        if ($kv{api_key3} ne '') {
+            ai_provider_key_save($kv{endpoint3}, $preset_name_for->($kv{endpoint3}), $kv{api_key3});
+        } else {
+            my $saved3 = ai_provider_key_lookup($kv{endpoint3});
+            $kv{api_key3} = ($saved3 ne '') ? $saved3 : ($aicfg{api_key3} // '');
+        }
         $kv{openrouter_key} = $aicfg{openrouter_key} if $kv{openrouter_key} eq '';
 
         my $ok = ai_cfg_write(%kv);
@@ -149,14 +168,14 @@ sub my_action {
         # even if the daemon is currently down (it'll read the new config
         # whenever it next starts) or the reload call itself fails.
         my $reloaded = $ok ? ai_daemon_reload() : 0;
-        print ($ok
+        print (($ok
             ? "<div style='color:#060;background:#dfd;border:1px solid #6a6;border-radius:4px;padding:6px 10px;display:inline-block'>"
                 . ai_txt('ai_saved', 'AI Helpdesk settings saved.')
                 . ($reloaded ? '' : ' ' . ai_txt('ai_reload_failed', '(daemon not reachable -- restart it manually via Stop/Start above to apply)'))
                 . "</div>"
             : "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>"
                 . ai_txt('ai_save_failed', 'Error writing config file') . " " . ai_esc(ai_cfg_path()) . "</div>")
-            . "<br><br>\n";
+            . "<br><br>\n");
         %aicfg = ai_cfg_read();
         print "<script>setTimeout(function(){ window.location.href=\"$base\"; }, 1500);</script>\n";
         &log_end;
@@ -245,7 +264,7 @@ sub my_action {
     # ---- hand-rolled 100%-width tables (list2table's first width segment
     # doubles as the outer <table> width AND a column width, which makes a
     # true 100% layout unreliable -- same pattern already used successfully
-    # in 10_System/03_CS_Tools/action.pl) ----
+    # in _lib/tools/CS_Tools_Download/action.pl) ----
     my $tbl_open  = "<table width='100%' style='border-collapse:collapse;border:1px solid #ccc'>\n";
     my $tbl_close = "</table>\n";
     my $row2 = sub {
@@ -353,7 +372,7 @@ sub my_action {
     # returns ($select_html_incl_hidden_fields, $key_row_html, $model_select_html)
     my $provider_block = sub {
         my ($slot, $cur_mode, $cur_provider, $cur_endpoint, $cur_model) = @_;
-        my $sfx = ($slot == 2) ? '2' : '';
+        my $sfx = ($slot == 3) ? '3' : (($slot == 2) ? '2' : '');
         my $effective_endpoint = ($cur_endpoint ne '') ? $cur_endpoint : ($legacy_default_ep{$cur_provider} // '');
         my $cur_preset = $preset_by_endpoint->($effective_endpoint);
         my $cur_val = 'off';
@@ -426,6 +445,10 @@ sub my_action {
         $provider_block->(1, $aicfg{mode} // 'free', $aicfg{provider} // 'openai', $aicfg{endpoint} // '', $aicfg{model} // '');
     my ($prov2_sel, $prov2_key, $prov2_model, $prov2_proto, $prov2_ep) =
         $provider_block->(2, $aicfg{mode2} // '', $aicfg{provider2} // 'openai', $aicfg{endpoint2} // '', $aicfg{model2} // '');
+    # Provider3 = vision provider for the Media Indexer job (cs-imageindex),
+    # full Provider2-style block (preset list + key popup + live model list).
+    my ($prov3_sel, $prov3_key, $prov3_model, $prov3_proto, $prov3_ep) =
+        $provider_block->(3, $aicfg{mode3} // '', $aicfg{provider3} // 'openai', $aicfg{endpoint3} // '', $aicfg{model3} // '');
 
     print "<script>\n";
     print "var CsAi = {id:'" . ai_esc($in{'id'}) . "', mem:'" . ai_esc($in{'member'}) . "'};\n";
@@ -433,7 +456,7 @@ sub my_action {
     print "  var sel=document.getElementById('cfg_choice'+slot); var o=sel.options[sel.selectedIndex];\n";
     print "  var val=sel.value; var proto=o.getAttribute('data-protocol')||''; var ep=o.getAttribute('data-endpoint')||'';\n";
     print "  var keysaved=o.getAttribute('data-keysaved')==='1';\n";
-    print "  var sfx=(slot===2)?'2':'';\n";
+    print "  var sfx=(slot===3)?'3':((slot===2)?'2':'');\n";
     print "  var mf=document.getElementById('cfg_mode'+sfx), pf=document.getElementById('cfg_provider'+sfx), ef=document.getElementById('cfg_endpoint'+sfx);\n";
     print "  if(val===''){ if(mf)mf.value=''; if(pf)pf.value=''; if(ef)ef.value=''; }\n";
     print "  else if(val==='off'){ if(mf)mf.value='off'; if(pf)pf.value=''; if(ef)ef.value=''; }\n";
@@ -462,7 +485,7 @@ sub my_action {
     print "function csAiKeyPopupSave(){\n";
     print "  var slot=csAiKeyPopupSlot; if(!slot) return;\n";
     print "  var val=document.getElementById('cfgKeyPopupInput').value;\n";
-    print "  var sfx=(slot===2)?'2':''; var pf=document.getElementById('cfg_provider'+sfx), ef=document.getElementById('cfg_endpoint'+sfx);\n";
+    print "  var sfx=(slot===3)?'3':((slot===2)?'2':''); var pf=document.getElementById('cfg_provider'+sfx), ef=document.getElementById('cfg_endpoint'+sfx);\n";
     print "  if(val){\n";
     print "    var kf=document.getElementById('cfg_api_key_input'+slot); if(kf) kf.value=val;\n";
     print "    var st=document.getElementById('cfg_key_status'+slot);\n";
@@ -533,6 +556,8 @@ sub my_action {
     print "  if(p1 && e1 && p1.value && e1.value) csAiFetchModels(1, p1.value, e1.value);\n";
     print "  var m2=document.getElementById('cfg_mode2'), p2=document.getElementById('cfg_provider2'), e2=document.getElementById('cfg_endpoint2');\n";
     print "  if(m2 && m2.value==='provider' && p2.value && e2.value) csAiFetchModels(2, p2.value, e2.value);\n";
+    print "  var m3=document.getElementById('cfg_mode3'), p3=document.getElementById('cfg_provider3'), e3=document.getElementById('cfg_endpoint3');\n";
+    print "  if(m3 && m3.value==='provider' && p3.value && e3.value) csAiFetchModels(3, p3.value, e3.value);\n";
     print "})();\n";
     print "</script>\n";
 
@@ -555,6 +580,18 @@ sub my_action {
         [ 'Provider 2',  $prov2_sel . $desc->("(use slot 1) | off | a preset -- optional 2nd provider for the act/exec step") ],
         [ 'API key 2',   $prov2_key ],
         [ 'Model 2',     $prov2_model ],
+    );
+
+    # ---- Provider3: vision provider for the Media Indexer job (cs-imageindex) ----
+    # cs_26.08.29 (Gea: "keine provider3 settings fuer cs-imageindex") -- the
+    # Media Indexer job reads endpoint3/model3/api_key3 (see job-index.pl
+    # vision_provider3_cfg). Full Provider2-style block: preset list from
+    # _cfg/cs-aihelp-providers.txt, key via the popup / key store, live model
+    # list from the endpoint.
+    my @prov3 = (
+        [ 'Provider 3',  $prov3_sel . $desc->("off | a preset -- vision provider used by the Media Indexer job (cs-imageindex) for scene descriptions") ],
+        [ 'API key 3',   $prov3_key ],
+        [ 'Model 3',     $prov3_model ],
     );
 
     # ---- general CS AI Helpdesk options (everything not provider-slot-specific) ----
@@ -604,6 +641,7 @@ sub my_action {
     print $sect->('CS-AI Settings', \@general);
     print $sect->('Provider1', \@prov1);
     print $sect->('Provider2', \@prov2);
+    print $sect->('Provider3 (Vision / Media Indexer)', \@prov3);
     print "<span style='color:#888;font-size:11px'>Save writes " . ai_esc(ai_cfg_path()) . "</span><br>\n";
     print "<input type='submit' value='Save'></form><br><br>\n";
 
@@ -617,6 +655,9 @@ sub my_action {
         [ 'Provider 2',         'ai_f_provider2' ],
         [ 'API key 2',          'ai_f_api_key2' ],
         [ 'Model 2',            'ai_f_model2' ],
+        [ 'Provider 3',         'ai_f_provider3' ],
+        [ 'API key 3',          'ai_f_api_key3' ],
+        [ 'Model 3',            'ai_f_model3' ],
         [ 'Daemon autostart',   'ai_f_autostart' ],
         [ 'Tool use (L1)',      'ai_f_tool_use' ],
         [ 'Exec access (L2)',   'ai_f_exec_access' ],

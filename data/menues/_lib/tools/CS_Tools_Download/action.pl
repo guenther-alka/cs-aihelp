@@ -7,7 +7,7 @@ use strict;
 #
 # cs-aihelp / cs-sleeper are NOT bundled in napp-it cs. Their binaries are
 # downloaded from the GitHub release and installed KEEPING the OS structure:
-#   data/cs_server/tools/<tool>/<platform>.<arch>/<tool>[.exe]
+#   _my/tools/<tool>/<platform>.<arch>/<tool>[.exe]
 # so that csweb-gui/data can be copied to another OS (on that OS the matching
 # binary is resolved per platform; "download/update" fetches it if missing).
 # The service/job settings menus just show "please download CS tools first".
@@ -27,10 +27,14 @@ sub my_action {
         my $tool = $in{'download'};
         $tool =~ s/[^a-z0-9_]//g;
         my ($ok, $msg) = cstools_download($tool, 1);
-        print ($ok
+        # cs_26.08.29: print (COND ? A : B) . X  would print ONLY the
+        # conditional (perl list-operator paren rule) and silently drop
+        # $msg + "</div>" -- the "empty green button" Gea reported.
+        # The whole concatenation must be inside the print parens.
+        print (($ok
             ? "<div style='color:#060;background:#dfd;border:1px solid #6a6;border-radius:4px;padding:6px 10px;display:inline-block'>"
             : "<div style='color:#a00;background:#fee;border:1px solid #faa;border-radius:4px;padding:6px 10px;display:inline-block'>")
-            . ai_esc($msg) . "</div><br><br>\n";
+            . ai_esc($msg) . "</div><br><br>\n");
         if ($ok && $tool eq 'aihelp') {
             print "<span style='color:#888;font-size:11px'>cs-aihelp downloaded -- configure/start it under System &gt; Services &gt; AI Helpdesk.</span><br><br>\n";
         }
@@ -64,7 +68,13 @@ sub my_action {
 
     my $dl_form = sub {
         my ($tool, $label) = @_;
-        return "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
+        # cs_26.08.29 (Gea: "clicked download, only an empty green button instead
+        # of 'downloading, please wait'"). The POST is synchronous and webserver.pl
+        # buffers the whole CGI response, so the browser shows NO feedback while
+        # the download runs. onsubmit: disable the button and show "please wait"
+        # immediately -- that state stays visible for the whole blocking nav.
+        return "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'"
+            . " onsubmit='var b=this.querySelector(\"input[type=submit]\");b.disabled=true;b.value=\"downloading, please wait...\";return true;'>"
             . "<input type='hidden' name='member' value=\"" . ai_esc($in{'member'}) . "\">"
             . "<input type='hidden' name='id' value=\"" . ai_esc($in{'id'}) . "\">"
             . "<input type='hidden' name='l1' value=\"" . ai_esc($in{'l1'}) . "\">"
@@ -127,12 +137,19 @@ sub my_action {
         $ollama_dl = "<span style='color:#888'>Ollama runs on Linux/macOS/Windows only -- on this OS use a remote Ollama (OLLAMA_BASE) or the free (Pollinations) fallback.</span>";
     }
     my $ollama_base_env = ai_esc($ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434 (default)');
-    my $quick_models = ['llama3.1', 'qwen2.5', 'mistral', 'phi3', 'gemma2'];
+    my $quick_models = ['qwen2.5:7b', 'mistral', 'phi4-mini', 'gemma2'];
+    my $quick_vision_models = ['llama3.2-vision:3b', 'llama3.2-vision', 'llava:34b'];
     my $pull_form = '';
     if ($ollama_ok) {
         my $quick_html = '';
         for my $m (@$quick_models) {
             $quick_html .= "<a href='#' onclick=\"document.getElementById('ollama_model_fld').value='"
+                . ai_esc($m) . "';return false;\" style='margin-right:6px;font-size:11px'>" . ai_esc($m) . "</a>";
+        }
+        # cs_26.08.28: vision-modelle als eigene quick-pick zeile
+        my $quick_vision_html = '';
+        for my $m (@$quick_vision_models) {
+            $quick_vision_html .= "<a href='#' onclick=\"document.getElementById('ollama_model_fld').value='"
                 . ai_esc($m) . "';return false;\" style='margin-right:6px;font-size:11px'>" . ai_esc($m) . "</a>";
         }
         $pull_form = "<form method='post' action='/cgi-bin/admin.pl' style='display:inline'>"
@@ -143,9 +160,10 @@ sub my_action {
             . "<input type='hidden' name='l3' value=\"" . ai_esc($in{'l3'}) . "\">"
             . "<input type='hidden' name='action' value=\"" . ai_esc($in{'action'}) . "\">"
             . "<input type='hidden' name='ollama_pull' value='1'>"
-            . "<input id='ollama_model_fld' type='text' name='ollama_model' value='llama3.1' style='width:180px' title='model tag, e.g. llama3.1, qwen2.5, mistral'>"
+            . "<input id='ollama_model_fld' type='text' name='ollama_model' value='qwen2.5:7b' style='width:180px' title='model tag, e.g. qwen2.5:7b, mistral, phi4-mini'>"
             . " <input type='submit' value='Pull model' style='padding:2px 8px'></form>"
             . "<div style='margin-top:2px'>quick pick: $quick_html</div>"
+            . "<div style='margin-top:2px'>with vision: $quick_vision_html</div>"
             . "<div style='color:#888;font-size:11px;margin-top:2px'>Ollama endpoint: $ollama_base_env "
             . "(override with env OLLAMA_BASE). Pull downloads run in the background and can take "
             . "several minutes to tens of minutes depending on model size and link speed -- status is shown below once started.</div>";
@@ -191,7 +209,7 @@ sub my_action {
 
     print "<span style='color:#888;font-size:11px'>"
         . "Only the binary for the frontend OS is downloaded. The OS structure "
-        . "(data/cs_server/tools/&lt;tool&gt;/&lt;platform&gt;.&lt;arch&gt;/) is kept, so csweb-gui/data can be copied to another OS "
+        . "(_my/tools/&lt;tool&gt;/&lt;platform&gt;.&lt;arch&gt;/) is kept, so csweb-gui/data can be copied to another OS "
         . "-- there the matching binary is resolved and can be fetched here if missing. "
         . "Newest versions are cached for 1 h (_cfg/cstools_versions).</span><br>\n";
 

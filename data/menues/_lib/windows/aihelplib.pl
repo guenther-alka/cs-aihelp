@@ -75,6 +75,15 @@ sub ai_cfg_defaults {
         model2        => '',
         api_key2      => '',
         free_model2   => '',
+        # Provider3 (cs_26.08.29) = vision provider for the Media Indexer job
+        # (cs-imageindex). OpenAI-compatible endpoint; read by job-index.pl
+        # vision_provider3_cfg() (endpoint3/model3/api_key3; empty api_key3 ->
+        # falls back to the per-endpoint key store cs-aihelp-provider-keys.txt).
+        mode3         => '',       # 'provider' when slot 3 is active (preserved, not shown in UI)
+        provider3     => 'openai',
+        endpoint3     => '',
+        model3        => '',
+        api_key3      => '',
         tool_use      => 'no',      # yes = attach read-only live state (Stufe 1)
         max_context   => 8000,      # system prompt budget in chars
         history       => 'month',   # off | today | week | month | 6months | all
@@ -327,7 +336,9 @@ sub ai_cfg_write {
     mkdir $dir unless -d $dir;          # _cfg/ may be missing on a fresh install
     my @keys = qw(mode provider endpoint model api_key free_model openrouter_key openrouter_model
                   mode2 provider2
-                  endpoint2 model2 api_key2 free_model2 exec_mode tool_use max_context
+                  endpoint2 model2 api_key2 free_model2
+                  mode3 provider3 endpoint3 model3 api_key3
+                  exec_mode tool_use max_context
                   history history_turns widget research research_max
                   research_endpoint research_key fallback log ssrf_allow_private rate_limit
                   exec_access exec_allow exec_deny autostart widget_input_lines widget_answer_height
@@ -474,17 +485,21 @@ sub ai_exec_allowed {
 # server_boot_tasks.pl at every server start. Gates:
 #   1. mode != off          (helpdesk disabled -> no daemon)
 #   2. autostart != off     (explicit opt-out)
-#   3. binary exists at data/cs_server/tools/cs-aihelp[.exe]
+#   3. binary exists (OS-structured install at _my/tools/cs-aihelp/
+#      <platform>.<arch>/cs-aihelp[.exe], see cstoolslib.pl)
 # Runs `cs-aihelp start` (detached + idempotent). Returns the command output
 # (or undef when skipped) so the caller can log it.
 sub ai_boot_autostart {
     my (%c) = @_;
     return unless (ai_trim($c{mode} // 'off')) ne 'off';
     return if (ai_trim($c{autostart} // 'on')) eq 'off';
+    # cs_26.08.29: resolve through cstoolslib (OS structure + legacy flat
+    # fallback). The old hardcoded data/cs_server/tools/cs-aihelp path no
+    # longer exists anywhere -- boot autostart silently did nothing after
+    # the tool install moved to _my/tools/.
+    my $bin = ai_daemon_bin();
+    return unless defined $bin && -f $bin;
     my $w = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
-    my $bin = "$w/data/cs_server/tools/cs-aihelp";
-    $bin .= '.exe' if $^O =~ /MSWin/i;
-    return unless -f $bin;
     my $cfg = "$w/_cfg/cs-aihelp";
     my $out = `"$bin" start --config "$cfg" 2>&1`;
     $out = ai_trim($out // '');
@@ -493,8 +508,8 @@ sub ai_boot_autostart {
 
 # v1.1.0 -- GitHub distribution: cs-aihelp is NOT bundled in napp-it cs. The
 # Go daemon binary is downloaded from GitHub (see cstoolslib.pl / the
-# System > CS Tools menu) and installed KEEPING the OS structure:
-# data/cs_server/tools/cs-aihelp/<platform>.<arch>/cs-aihelp[.exe], so that
+# About > CS Tools Download menu) and installed KEEPING the OS structure:
+# _my/tools/cs-aihelp/<platform>.<arch>/cs-aihelp[.exe], so that
 # csweb-gui/data can be copied to another OS.
 sub ai_github_platform {
     return cstools_platform();   # (platform, arch, ext)
@@ -785,23 +800,39 @@ sub ai_parse_action {
 #               (instant, no account, experimental/rate-limited).
 # mode=provider -> stored provider/endpoint/model/key (empty fields = defaults)
 #
-# Two slots (Cline-style, v1.1): slot 'plan' (default, RO) uses mode/provider/
-# endpoint/model/api_key/free_model; slot 'act' uses the mode2/provider2/.../
-# keys and falls back to slot 1 when mode2 is empty. The slot is read from a
-# transient 'slot' key in the passed hash.
+# Three provider slots (v1.1 + cs_26.08.29): slot 'p1' (default) uses
+# mode/provider/endpoint/model/api_key/free_model; slot 'p2' uses the
+# mode2/provider2/.../ keys and falls back to slot 1 when mode2 is empty;
+# slot 'p3' uses the mode3/provider3/endpoint3/model3/api_key3 keys (Provider3
+# / vision) and is STRICT -- empty/off mode3 returns undef ("not configured"),
+# no fallback to slot 1. The slot is read from a transient 'slot' key in the
+# passed hash.
 sub ai_resolve {
     my %cfg = @_;
-    my $slot = ai_trim($cfg{slot} // 'plan');
-    $slot = 'act' if $slot eq 'act';
-    my $m2 = ai_trim($cfg{mode2} // '');
-    if ($slot eq 'act' && $m2 ne '' && $m2 ne 'off') {
+    my $slot = ai_trim($cfg{slot} // 'p1');
+    $slot = 'p1' unless $slot =~ /^(p1|p2|p3)$/;
+    if ($slot eq 'p2') {
+        my $m2 = ai_trim($cfg{mode2} // '');
+        if ($m2 ne '' && $m2 ne 'off') {
+            %cfg = (
+                mode       => ai_trim($cfg{mode2}),
+                provider   => ai_trim($cfg{provider2} // ''),
+                endpoint   => ai_trim($cfg{endpoint2} // ''),
+                model      => ai_trim($cfg{model2} // ''),
+                api_key    => ai_trim($cfg{api_key2} // ''),
+                free_model => ai_trim($cfg{free_model2} // ''),
+            );
+        }
+    } elsif ($slot eq 'p3') {
+        my $m3 = ai_trim($cfg{mode3} // '');
+        return undef if $m3 eq '' || $m3 eq 'off';   # strict: no fallback
         %cfg = (
-            mode       => ai_trim($cfg{mode2}),
-            provider   => ai_trim($cfg{provider2} // ''),
-            endpoint   => ai_trim($cfg{endpoint2} // ''),
-            model      => ai_trim($cfg{model2} // ''),
-            api_key    => ai_trim($cfg{api_key2} // ''),
-            free_model => ai_trim($cfg{free_model2} // ''),
+            mode       => $m3,
+            provider   => ai_trim($cfg{provider3} // 'openai'),
+            endpoint   => ai_trim($cfg{endpoint3} // ''),
+            model      => ai_trim($cfg{model3} // ''),
+            api_key    => ai_trim($cfg{api_key3} // ''),
+            free_model => '',
         );
     }
     my $mode = ai_trim($cfg{mode} // 'off');
@@ -1512,7 +1543,11 @@ sub _ai_free_pollinations {
 sub ai_ask {
     my ($question, $context, $live_state, $hist_msgs, $tool_results, $provider_use) = @_;
     my %cfg = ai_cfg_read();
-    $cfg{slot} = ($provider_use eq 'act') ? 'act' : 'plan';
+    $cfg{slot} = ($provider_use =~ /^(p1|p2|p3)$/) ? $provider_use : 'p1';
+    # cs_26.08.29: slot 3 (Provider3 / vision) is strict -- no fallback.
+    if ($cfg{slot} eq 'p3' && ai_trim($cfg{mode3} // '') =~ /^(|off)$/) {
+        return { error => 'Provider3 not configured -- configure it under System > Services > AI Helpdesk > Provider3 (Vision / Media Indexer).' };
+    }
     my $resolved = ai_resolve(%cfg);
     return { error => 'AI Helpdesk ist deaktiviert (mode=off). Aktiviere ihn unter System > Services > AI Helpdesk.' }
         unless $resolved;
@@ -1579,7 +1614,7 @@ sub ai_ask {
     $r->{sources} = [ map { $_->{file} } @retrieved ] if @retrieved;
     push @{$r->{sources}}, map { $_->{url} } @research if @research;
     $r->{mode} = $mode;
-    $r->{provider_use} = $resolved->{slot} // 'plan';
+    $r->{provider_use} = $resolved->{slot} // 'p1';
     return $r;
 }
 
@@ -1778,8 +1813,8 @@ function _aiCopy(btn){
 }
 function _aiAccessMode(){
   var prp=document.getElementById(_aiPopup?'aihelp_p_provider':'aihelp_provider');
-  var provider='plan';
-  if(prp && prp.value && prp.value==='mode2'){ provider='act'; }
+  var provider='p1';
+  if(prp && prp.value){ provider=prp.value; }   // p1|p2|p3 provider slot
   var am=document.getElementById('aihelp_amode');
   var mode='plan';
   if(am && am.value && am.value==='act'){ mode='act'; }
@@ -2244,9 +2279,10 @@ sub ai_chat_page {
   </div>
   <div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:nowrap;overflow-x:auto;padding:6px 8px;border:1px solid #888;border-radius:4px;background:#f6f6f6">
     <span style="color:#888;font-size:12px">Provider:</span>
-    <select id="aihelp_provider" style="font-size:12px">
-      <option value="mode1">mode1</option>
-      <option value="mode2">mode2</option>
+    <select id="aihelp_provider" style="font-size:12px" title="Provider slot (p1/p2/p3)">
+      <option value="p1">p1</option>
+      <option value="p2">p2</option>
+      <option value="p3">p3</option>
     </select>
     $status_btns
     <span style="color:#888;font-size:12px">Mode:</span>
@@ -2347,11 +2383,12 @@ EoP
     # ... vor die mode auswahl setzen" + "In widget headline schreiben:
     # 'klick on ASK AI to show/hide widget'") -- the widget never had a
     # separate act/plan "Mode" select of its own (only the full page
-    # does); its "Provider" select (mode1/mode2) is the closest thing to
-    # a mode selector here (_aiAccessMode() reads it as plan/act). First
-    # removed entirely in favor of the status buttons; Gea follow-up
-    # ("im widget fehlt der mode 1/2 selector") restored it -- both now
-    # sit together in the same compact row, select first, buttons after.
+    # does); its "Provider" select (p1/p2/p3) is the closest thing to
+    # a mode selector here (_aiAccessMode() reads it as the provider
+    # slot). First removed entirely in favor of the status buttons; Gea
+    # follow-up ("im widget fehlt der mode 1/2 selector") restored it --
+    # both now sit together in the same compact row, select first,
+    # buttons after.
     my $status_btns = ai_status_buttons_html('popup');
     print "<button id=\"aihelp_btn\" title=\"Klick AI to show/hide widget\" onclick=\"var b=document.getElementById('aihelp_box');b.style.display=(b.style.display==='none'||b.style.display==='')?'block':'none';window._aiApi_popup.focus('aihelp_p_q');\">Ask AI</button>\n";
     print <<"EoP";
@@ -2361,9 +2398,10 @@ EoP
   <div id="aihelp_p_foot">
     $q_ctl
     <div style="margin-top:4px;display:flex;align-items:center;flex-wrap:nowrap;overflow-x:auto;gap:6px">
-      <select id="aihelp_p_provider" style="font-size:11px;padding:1px" title="Provider slot (mode1/mode2)">
-        <option value="mode1">mode1</option>
-        <option value="mode2">mode2</option>
+      <select id="aihelp_p_provider" style="font-size:11px;padding:1px" title="Provider slot (p1/p2/p3)">
+        <option value="p1">p1</option>
+        <option value="p2">p2</option>
+        <option value="p3">p3</option>
       </select>
       $status_btns
       <span style="flex:1"></span>

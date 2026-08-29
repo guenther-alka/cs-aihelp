@@ -4,8 +4,8 @@
 #
 # cs-aihelp / cs-sleeper are NOT bundled in napp-it cs; their daemon binaries
 # are downloaded from the GitHub release and installed KEEPING the OS
-# structure: data/cs_server/tools/<tool>/<platform>.<arch>/<tool>[.exe]
-# (legacy flat installs at data/cs_server/tools/<tool>[.exe] are still found).
+# structure: _my/tools/<tool>/<platform>.<arch>/<tool>[.exe]
+# (legacy flat installs at _my/tools/<tool>[.exe] are still found).
 # This keeps csweb-gui/data portable: after copying it to another OS, the
 # matching <platform>.<arch> binary is resolved there (and can be fetched
 # with "Download newest" from the CS Tools menu if missing).
@@ -57,6 +57,11 @@ sub cstools_registry {
           repo => 'guenther-alka/cs-freeze4snap', asset => 'cs-freeze4snap', subdir => 'cs-freeze4snap',
           module => 0, kind => 'raw', tok => { linux => 'linux' },
           desc => 'Filesystem freeze for snapshots (Linux only).' },
+        { key => 'imageindex', name => 'cs-imageindex (photo/video indexer)',
+          repo => 'guenther-alka/cs-imageindex', asset => 'cs-imageindex', subdir => 'cs-imageindex',
+          module => 0, kind => 'tar', models => 1, tools => 1,
+          tok => { mswin => 'mswin', linux => 'linux', darwin => 'darwin', illumos => 'illumos' },
+          desc => 'Photo/video folder indexer: EXIF/GPS, vision-LLM scene description, face recognition.' },
     ];
 }
 
@@ -209,12 +214,17 @@ sub cstools_installed {
     return (0, '', '') unless $e;
     my $w = (defined $wpath && $wpath ne '') ? $wpath : '/opt/csweb-gui';
     my ($platform, $arch, $ext) = cstools_platform();
-    my $osbin = "$w/data/cs_server/tools/$e->{subdir}/$platform.$arch/$e->{asset}$ext";
-    my $flat   = "$w/data/cs_server/tools/$e->{asset}$ext";
+    my $osbin = "$w/_my/tools/$e->{subdir}/$platform.$arch/$e->{asset}$ext";
+    my $flat   = "$w/_my/tools/$e->{asset}$ext";
     my $bin = (-f $osbin) ? $osbin : ((-f $flat) ? $flat : $osbin);
     return (0, '', $bin) unless -f $bin;
     my $ver = `"$bin" version 2>&1`;
     $ver =~ s/^\s+|\s+$//g;
+    # some tools (e.g. clap-based cs-imageindex) only expose --version
+    if ($ver eq '' || $ver =~ /error|usage/i) {
+        $ver = `"$bin" --version 2>&1`;
+        $ver =~ s/^\s+|\s+$//g;
+    }
     $ver = '?' if $ver eq '' || $ver =~ /error|usage/i;
     return (1, $ver, $bin);
 }
@@ -255,7 +265,7 @@ sub cstools_download {
     }
 
     # install keeping the OS structure: tools/<tool>/<platform>.<arch>/<tool>[.exe]
-    my $osdir = "$w/data/cs_server/tools/$e->{subdir}/$platform.$arch";
+    my $osdir = "$w/_my/tools/$e->{subdir}/$platform.$arch";
     make_path($osdir);
     my $target = "$osdir/$e->{asset}$ext";
 
@@ -273,17 +283,38 @@ sub cstools_download {
         unlink $dst;
         if (!$okx) { remove_tree($exdir); return (0, 'Archiv-Extraktion fehlgeschlagen.'); }
         my $bin = '';
+        my $bindir = $exdir;
         if (-f "$exdir/$e->{asset}$ext") { $bin = "$exdir/$e->{asset}$ext"; }
         elsif (opendir(my $dh, $exdir)) {
             while (my $d = readdir $dh) {
                 next if $d =~ /^\./;
                 next unless -d "$exdir/$d";
-                if (-f "$exdir/$d/$e->{asset}$ext") { $bin = "$exdir/$d/$e->{asset}$ext"; last; }
+                if (-f "$exdir/$d/$e->{asset}$ext") { $bin = "$exdir/$d/$e->{asset}$ext"; $bindir = "$exdir/$d"; last; }
             }
             closedir $dh;
         }
         if ($bin eq '') { remove_tree($exdir); return (0, 'Binary im Archiv nicht gefunden.'); }
         copy($bin, $target) or do { remove_tree($exdir); return (0, "Kopieren nach $target fehlgeschlagen."); };
+        # optional bundled assets next to the binary (e.g. cs-imageindex models/)
+        if ($e->{models} && opendir(my $mh, "$bindir/models")) {
+            make_path("$osdir/models") unless -d "$osdir/models";
+            while (my $f = readdir $mh) {
+                next if $f =~ /^\./;
+                next unless -f "$bindir/models/$f";
+                copy("$bindir/models/$f", "$osdir/models/$f") or warn "cstoolslib: cannot copy models/$f: $!";
+            }
+            closedir $mh;
+        }
+        # bundled runtime tools next to the binary (e.g. cs-imageindex ffmpeg/ffprobe)
+        if ($e->{tools}) {
+            for my $tool (qw(ffmpeg ffprobe)) {
+                my $src = "$bindir/$tool$ext";
+                if (-f $src) {
+                    copy($src, "$osdir/$tool$ext") or warn "cstoolslib: cannot copy $tool$ext: $!";
+                    chmod(0755, "$osdir/$tool$ext") unless $^O =~ /MSWin/i;
+                }
+            }
+        }
         remove_tree($exdir);
     }
     chmod(0755, $target) unless $^O =~ /MSWin/i;

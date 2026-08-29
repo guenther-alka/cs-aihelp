@@ -305,7 +305,10 @@ if (($in{l1} // '') ne '') {
 }
 
 # ---- P2: forward to the Go daemon /ask --------------------------------
-my $provider_use = ($in{provider_use} // 'plan') eq 'act' ? 'act' : 'plan';
+# provider slot whitelist p1|p2|p3 (default p1); the daemon resolves the slot
+# and returns "Provider3 not configured" when p3/mode3 is unset (strict).
+my $provider_use = $in{provider_use} // 'p1';
+$provider_use = 'p1' unless $provider_use =~ /^(p1|p2|p3)$/;
 my $stream = (($in{stream} // 0) eq '1' || $in{stream} eq 'true') ? 1 : 0;
 my $dbody = encode_json({
     question     => $question,

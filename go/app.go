@@ -56,7 +56,7 @@ type AskRequest struct {
 	Conv         string   `json:"conv"`
 	Stream       bool     `json:"stream"`
 	ToolResults  []string `json:"tool_results"` // Level 2: outputs of executed commands
-	ProviderUse  string   `json:"provider_use"` // "plan" (default) | "act" (slot 2)
+	ProviderUse  string   `json:"provider_use"` // "p1" (default) | "p2" | "p3" (provider slot)
 }
 
 type AskResult struct {
@@ -166,7 +166,10 @@ func (a *App) askStream(req AskRequest, member string, emit tokenEmitter) (AskRe
 }
 
 func (a *App) askInternal(req AskRequest, member string, emit tokenEmitter) (AskResult, error) {
-	cfg := applyProviderSlot(a.Config(), req.ProviderUse)
+	cfg, err := applyProviderSlot(a.Config(), req.ProviderUse)
+	if err != nil {
+		return AskResult{}, err
+	}
 	if cfg.Mode == "off" {
 		return AskResult{}, ErrDisabled
 	}
@@ -296,9 +299,12 @@ func (a *App) askInternal(req AskRequest, member string, emit tokenEmitter) (Ask
 		cleanupConvs(a.base, cfg.History)
 	}
 
-	pu := "plan"
-	if req.ProviderUse == "act" {
-		pu = "act"
+	pu := "p1"
+	switch req.ProviderUse {
+	case "p2":
+		pu = "p2"
+	case "p3":
+		pu = "p3"
 	}
 	return AskResult{Answer: answer, Sources: sources, Mode: cfg.Mode, Conv: convID, Via: via, Action: action, ProviderUse: pu}, nil
 }
@@ -310,12 +316,14 @@ func fmtN(n int) string {
 	return string(rune('0' + n/10)) + string(rune('0'+n%10))
 }
 
-// applyProviderSlot resolves the provider slot for a request: "act" plus a
-// configured mode2 uses the slot-2 provider (Cline-style), otherwise slot 1
-// (plan). Mirrors aihelplib's ai_resolve. Returns the effective config.
-func applyProviderSlot(cfg *Config, providerUse string) *Config {
+// applyProviderSlot resolves the provider slot for a request: "p2" plus a
+// configured mode2 uses the slot-2 provider (falls back to slot 1 when mode2
+// is empty/off), "p3" uses the slot-3 provider (Provider3 / vision) and is
+// STRICT -- empty/off mode3 returns a "not configured" error instead of
+// falling back. Mirrors aihelplib's ai_resolve. Returns the effective config.
+func applyProviderSlot(cfg *Config, providerUse string) (*Config, error) {
 	eff := *cfg
-	if providerUse == "act" {
+	if providerUse == "p2" {
 		m2 := strings.TrimSpace(eff.Mode2)
 		if m2 != "" && m2 != "off" {
 			eff.Mode = m2
@@ -326,7 +334,19 @@ func applyProviderSlot(cfg *Config, providerUse string) *Config {
 			eff.FreeModel = strings.TrimSpace(eff.FreeModel2)
 		}
 	}
-	return &eff
+	if providerUse == "p3" {
+		m3 := strings.TrimSpace(eff.Mode3)
+		if m3 == "" || m3 == "off" {
+			return nil, errMsg("Provider3 not configured (System > Services > AI Helpdesk > Provider3)")
+		}
+		eff.Mode = m3
+		eff.Provider = strings.TrimSpace(eff.Provider3)
+		eff.Endpoint = strings.TrimSpace(eff.Endpoint3)
+		eff.Model = strings.TrimSpace(eff.Model3)
+		eff.APIKey = strings.TrimSpace(eff.APIKey3)
+		eff.FreeModel = ""
+	}
+	return &eff, nil
 }
 
 var (
