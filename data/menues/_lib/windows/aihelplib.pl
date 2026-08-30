@@ -1185,7 +1185,9 @@ sub ai_provider_call {
 
 ################  free tier backends
 # query the local Ollama daemon for installed models; returns
-# (arrayref of model tags, reachable_bool). Empty list if Ollama is absent.
+# (arrayref of model tags, reachable_bool, vision_hashref). Empty list if
+# Ollama is absent. $vision maps model name -> 1 when the model is
+# vision-capable (cs_26.08.30, Gea: "welches ollama modell kann vision?").
 sub ai_ollama_models {
     my $base = $ENV{OLLAMA_BASE} // 'http://127.0.0.1:11434';
     my $ua = HTTP::Tiny->new(timeout => 2, verify_SSL => 0);
@@ -1194,12 +1196,26 @@ sub ai_ollama_models {
     my $data;
     eval { $data = decode_json($probe->{content}) };
     return ([], 1) unless $data && ref $data->{models} eq 'ARRAY';
-    my @models;
+    my (@models, %vision);
     for my $m (@{$data->{models}}) {
-        push @models, $m->{name} if ($m->{name} // '') ne '';
+        my $name = $m->{name} // '';
+        next if $name eq '';
+        push @models, $name;
+        # Vision detection: Ollama >= 0.5.x lists "vision" in capabilities;
+        # older builds expose the vision encoder via details.families
+        # ("clip" = LLaVA, "mllama" = llama3.2-vision, "moondream").
+        my @caps = ref $m->{capabilities} eq 'ARRAY' ? @{ $m->{capabilities} } : ();
+        my $is_vision = (grep { $_ eq 'vision' } @caps) ? 1 : 0;
+        if (!$is_vision) {
+            my @fams = ref $m->{details}{families} eq 'ARRAY' ? @{ $m->{details}{families} } : ();
+            my $fam  = $m->{details}{family} // '';
+            $is_vision = 1 if (grep { $_ eq 'clip' || $_ eq 'mllama' || $_ eq 'moondream' } @fams)
+                        || $fam eq 'clip' || $fam eq 'moondream';
+        }
+        $vision{$name} = 1 if $is_vision;
     }
     @models = sort @models;
-    return (\@models, 1);
+    return (\@models, 1, \%vision);
 }
 
 ################  live model listing for the unified provider select
@@ -1220,11 +1236,11 @@ sub ai_list_provider_models {
         # local daemon, no key -- reuse the existing helper against THIS
         # endpoint's host:port (not just the OLLAMA_BASE env default), so a
         # non-default Ollama endpoint (remote LAN, ssrf_allow_private=yes)
-        # is also honoured.
+        # is also honoured. Third return value: vision-capable model map.
         my ($base) = $endpoint =~ m{^(https?://[^/]+)};
         local $ENV{OLLAMA_BASE} = $base if $base;
-        my ($models, $reachable) = ai_ollama_models();
-        return ($models, '') if $reachable && @$models;
+        my ($models, $reachable, $vision) = ai_ollama_models();
+        return ($models, '', $vision) if $reachable && @$models;
         return ([], $reachable ? 'no models installed (ollama pull ...)' : 'ollama not reachable');
     }
 

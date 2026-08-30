@@ -525,7 +525,7 @@ sub my_action {
     print "    var cur=ms.getAttribute('data-current')||'';\n";
     print "    var ok = j.ok && j.detail && j.detail.models && j.detail.models.length;\n";
     print "    if(ok){\n";
-    print "      j.detail.models.forEach(function(m){ var o=document.createElement('option'); o.value=m; o.textContent=m; if(m===cur) o.selected=true; ms.appendChild(o); });\n";
+    print "      j.detail.models.forEach(function(m){ var o=document.createElement('option'); o.value=m; o.textContent=m+((j.detail.vision&&j.detail.vision[m])?' (vision)':''); if(m===cur) o.selected=true; ms.appendChild(o); });\n";
     print "    } else {\n";
     print "      var o=document.createElement('option'); o.value=cur; o.textContent=(j.text||'api not accepted')+(cur?' ('+cur+' kept)':''); o.selected=true; ms.appendChild(o);\n";
     print "    }\n";
