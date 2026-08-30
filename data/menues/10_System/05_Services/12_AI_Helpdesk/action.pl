@@ -546,19 +546,29 @@ sub my_action {
     # Model select only ever populated on an onchange event; a page reload
     # with an already-configured provider (Ollama or cloud) showed just the
     # single stored model value, not the live list, until you re-touched
-    # the dropdown. Auto-fetch both slots once on load instead -- for
-    # Ollama this is instant/local; for a cloud provider with a saved key,
-    # get_async.pl's _h_ai_models already falls back to the stored key when
-    # api_key is sent empty, so this also gives immediate accepted/refused
-    # feedback without the user opening the key popup at all.
-    print "(function(){\n";
-    print "  var p1=document.getElementById('cfg_provider'), e1=document.getElementById('cfg_endpoint');\n";
-    print "  if(p1 && e1 && p1.value && e1.value) csAiFetchModels(1, p1.value, e1.value);\n";
-    print "  var m2=document.getElementById('cfg_mode2'), p2=document.getElementById('cfg_provider2'), e2=document.getElementById('cfg_endpoint2');\n";
-    print "  if(m2 && m2.value==='provider' && p2.value && e2.value) csAiFetchModels(2, p2.value, e2.value);\n";
-    print "  var m3=document.getElementById('cfg_mode3'), p3=document.getElementById('cfg_provider3'), e3=document.getElementById('cfg_endpoint3');\n";
-    print "  if(m3 && m3.value==='provider' && p3.value && e3.value) csAiFetchModels(3, p3.value, e3.value);\n";
-    print "})();\n";
+    # the dropdown. Auto-fetch once on load -- for Ollama this is
+    # instant/local; for a cloud provider with a saved key, get_async.pl's
+    # _h_ai_models already falls back to the stored key when api_key is sent
+    # empty, so this also gives immediate accepted/refused feedback.
+    # cs_26.08.30 (Gea: "modelle nur nach provider-wechsel sichtbar"): read
+    # protocol/endpoint from the SELECTED PRESET OPTION's data-protocol/
+    # data-endpoint -- the exact same source csAiProviderChange() uses on
+    # change -- instead of the hidden cfg_* inputs (which can be empty/stale
+    # at parse time in some browsers). Run on script parse AND again after
+    # window load as a safety retry.
+    print "function csAiAutoLoad(){\n";
+    print "  function slotFetch(slot){\n";
+    print "    var sel=document.getElementById('cfg_choice'+slot); if(!sel) return;\n";
+    print "    var o=sel.options[sel.selectedIndex];\n";
+    print "    var proto=o?o.getAttribute('data-protocol')||'':''; var ep=o?o.getAttribute('data-endpoint')||'':'';\n";
+    print "    if(proto && ep) csAiFetchModels(slot, proto, ep);\n";
+    print "  }\n";
+    print "  slotFetch(1);\n";
+    print "  var m2=document.getElementById('cfg_mode2'); if(m2 && m2.value==='provider') slotFetch(2);\n";
+    print "  var m3=document.getElementById('cfg_mode3'); if(m3 && m3.value==='provider') slotFetch(3);\n";
+    print "}\n";
+    print "csAiAutoLoad();\n";
+    print "window.addEventListener('load', function(){ setTimeout(csAiAutoLoad, 300); });\n";
     print "</script>\n";
 
     # single reusable popup for both provider slots (cs_26.08.26_4)
