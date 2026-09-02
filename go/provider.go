@@ -40,10 +40,27 @@ import (
 // certificate verification, whatever allowPrivate is.
 func httpClientForEndpoint(ep string, allowPrivate bool) *http.Client {
 	low := strings.ToLower(strings.TrimSpace(ep))
+	// cs_rc_26.09.02_14 (Gea, live-test finding): this client is also used
+	// by openaiSSEStream() (streaming widget chat, via providerAnswer())
+	// which -- unlike the non-streaming path in callProvider()/postJSON(),
+	// where postJSON always sets client.Timeout (default 120s) -- called
+	// http.Client.Do() on a client with NO Timeout at all. A stuck/hanging
+	// upstream (reported live: "Inhouse Provider" via cs-proxy's AI edge --
+	// chat request hangs 2+ minutes, no response, no error, no log entry,
+	// daemon idle-CPU/blocked on I/O) then blocked the request FOREVER --
+	// http.Client.Do() has no default timeout of its own. Give every
+	// client from here a generous but finite ceiling so a dead/hanging
+	// upstream always surfaces as an error instead of hanging the widget
+	// indefinitely (and, since server.pl's request queue is serial per
+	// client, the whole AI Helpdesk for that session with it). 180s >
+	// the 120s used elsewhere in this file, to leave headroom for slow
+	// first-token latency on a legitimately slow local model before
+	// streaming output starts.
+	timeout := 180 * time.Second
 	if allowPrivate && strings.HasPrefix(low, "https://") && isPrivateOrLoopbackHost(ep) {
-		return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+		return &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
 	}
-	return &http.Client{}
+	return &http.Client{Timeout: timeout}
 }
 
 // DefaultOpenRouterModel is used when openrouter_model is unset. OpenRouter's
@@ -414,7 +431,11 @@ func ollamaNDJSONStream(ep, model, system string, msgs []chatMsg, emit tokenEmit
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	// cs_rc_26.09.02_14: same fix as httpClientForEndpoint() above -- this
+	// ad-hoc client (local/free-mode Ollama NDJSON streaming) had no
+	// Timeout either, so a stuck local Ollama daemon could hang a chat
+	// request forever too. Same 180s ceiling for consistency.
+	resp, err := (&http.Client{Timeout: 180 * time.Second}).Do(req)
 	if err != nil {
 		return "", err
 	}
