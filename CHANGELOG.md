@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.1 (2026-09-02, Go only) -- Inhouse Provider (private-LAN https): fix TLS cert rejection
+## v1.2.4 (2026-09-02, Go only) -- Inhouse Provider (private-LAN https): fix TLS cert rejection
 
 - **Trigger** (Gea, live widget use against member .189's cs-proxy AI
   edge): "widget -> .189 proxy / Question: analyse pool on
