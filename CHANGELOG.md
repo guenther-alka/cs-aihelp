@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.2.5 (2026-09-02, Go only) -- streaming chat requests had no HTTP timeout, could hang forever
+
+- **Trigger** (Gea, live-test of AI Helpdesk / imageindex / Media
+  Selection across localhost, .112, .189): a widget chat request via
+  Provider2 ("Inhouse Provider", OpenAI-compatible, routed through
+  cs-proxy's AI edge) hung indefinitely -- 2+ minutes, no response, no
+  error, no new entry in any log, daemon alive with idle CPU (blocked
+  on I/O, not computing).
+- **Root cause (provider.go)**: `openaiSSEStream()` -- the streaming
+  path `providerAnswer()` uses for widget chat (`emit != nil`) -- got
+  its `*http.Client` from `httpClientForEndpoint()`, which built a
+  plain `&http.Client{}` / `&http.Client{Transport: ...}` with no
+  `Timeout` set at all. Unlike the non-streaming path in
+  `callProvider()`, where `postJSON()` always sets `client.Timeout`
+  (120s default), `http.Client.Do()` has no timeout of its own --
+  so a stuck/unresponsive upstream (here: cs-proxy's AI edge) blocked
+  the request forever. Because server.pl's request queue is serial
+  per client, this could stall the whole AI Helpdesk for that session,
+  not just the one question.
+- **Fix**: `httpClientForEndpoint()` now sets `Timeout: 180 * time.Second`
+  on every client it returns (180s, a bit above the existing 120s used
+  elsewhere in this file, to leave headroom for slow first-token
+  latency before streaming output starts). `ollamaNDJSONStream()`'s
+  separate ad-hoc client (local/free-mode Ollama streaming) had the
+  identical gap and got the same 180s ceiling for consistency.
+- **Not fixed here** (documented as a known limitation, flagged for a
+  future napp-it cs release): Media Selection's Windows symlink
+  creation (`New-Item -ItemType SymbolicLink`) silently creates 0
+  links without admin privileges / Developer Mode -- unrelated Perl-
+  side finding from the same live-test session, tracked in the
+  csweb-gui repo (`action.pl.clg`), not part of this Go module.
+
 ## v1.2.4 (2026-09-02, Go only) -- Inhouse Provider (private-LAN https): fix TLS cert rejection
 
 - **Trigger** (Gea, live widget use against member .189's cs-proxy AI
