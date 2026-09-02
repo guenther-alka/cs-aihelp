@@ -1,5 +1,52 @@
 # Changelog
 
+## v1.2.1 (2026-09-02, Go only) -- Inhouse Provider (private-LAN https): fix TLS cert rejection
+
+- **Trigger** (Gea, live widget use against member .189's cs-proxy AI
+  edge): "widget -> .189 proxy / Question: analyse pool on
+  localhost~127.0.0.1 / Post
+  \"https://192.168.2.189:8443/v1/chat/completions\": tls: failed to
+  verify certificate: x509: certificate signed by unknown authority".
+  "Inhouse Provider" endpoints point at our own cs-proxy AI edge
+  (cs-proxy-src/ai.go) running on a member or the frontend itself,
+  which always serves a self-signed certificate by design -- there is
+  no CA to verify against. The daemon's outbound HTTPS calls used a
+  plain `&http.Client{}` everywhere (confirmed via grep across
+  provider.go/research.go/server.go -- no `tls.Config` /
+  `InsecureSkipVerify` anywhere), so Go's default strict certificate
+  validation rejected the connection outright. The Perl fallback path
+  (`aihelplib.pl::ai_provider_call`) already handles exactly this case
+  (retries insecurely on an SSL/verify/CA error); the Go daemon --
+  which is what the widget actually talks to -- had no equivalent.
+- **Fix (provider.go)**: new `httpClientForEndpoint(ep string,
+  allowPrivate bool) *http.Client` -- returns a client with
+  `InsecureSkipVerify: true` ONLY when the endpoint is `https://` AND
+  its host is loopback/RFC1918-private (new `isPrivateOrLoopbackHost`/
+  `hostOf` helpers in ssrf.go) AND the user has already opted in to
+  private endpoints (`ssrf_allow_private=yes` -- auto-set at Save time
+  for any private-LAN provider endpoint, see the Perl-side
+  `cs_rc_26.09.02_07`/`_09` fixes in the csweb-gui repo). A
+  public-internet endpoint (api.openai.com, openrouter.ai, ...) always
+  keeps full certificate verification, regardless of that flag.
+  Wired into the two live call sites for the openai-compatible chat
+  path: `callProvider()`'s client (non-streaming) and
+  `openaiSSEStream()` (the streaming path the widget actually uses,
+  called from `providerAnswer()`). `freeOpenRouterStream()` now passes
+  `allowPrivate=false` explicitly (public endpoint, must never relax).
+  `ollamaNDJSONStream` (local http Ollama, never https/private in
+  practice) left untouched.
+- **Verified**: `go build ./...`, `go vet ./...` and `go test ./...`
+  all pass (existing suite, plus `provider_stream_test.go`'s
+  `openaiSSEStream` call updated for the new `allowPrivate` parameter).
+  Live end-to-end check pending after deploy: repeat the widget
+  question that triggered the original error against
+  `https://192.168.2.189:8443/v1/chat/completions`.
+- **Not changed / still open**: no code path relaxes verification for
+  a *public* https endpoint under any config -- only loopback/private
+  hosts, and only when the user already flagged them as intentionally
+  private. cs-proxy's own cert generation/rotation is unchanged.
+- **Files**: go/ssrf.go, go/provider.go, go/provider_stream_test.go.
+
 ## (2026-08-27, Perl only) -- AI Helpdesk: status short-command buttons + always-on member context
 
 - **Trigger**: a multi-part request to (1) always pass member identity

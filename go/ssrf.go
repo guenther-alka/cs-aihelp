@@ -54,6 +54,45 @@ func safeURL(raw string, allowLoopback, allowPrivate bool) bool {
 	return true
 }
 
+// hostOf extracts the bare host (no port, no brackets) from an http(s) URL.
+func hostOf(raw string) string {
+	low := strings.ToLower(strings.TrimSpace(raw))
+	rest := low
+	if strings.HasPrefix(low, "https://") {
+		rest = low[len("https://"):]
+	} else if strings.HasPrefix(low, "http://") {
+		rest = low[len("http://"):]
+	}
+	host := rest
+	if i := strings.IndexAny(host, "/:"); i >= 0 {
+		host = host[:i]
+	}
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	return host
+}
+
+// isPrivateOrLoopbackHost reports whether raw's host is loopback or an
+// RFC1918/private-range address.
+//
+// cs_rc_26.09.02_11 (Gea: "widget -> .189 proxy ... x509: certificate
+// signed by unknown authority"): used by httpClientForEndpoint (provider.go)
+// to decide when a self-signed certificate is the expected, intentional
+// setup (our own cs-proxy AI edge on a private-LAN member) rather than a
+// real MITM risk, so it is safe to relax certificate verification only for
+// that narrow case.
+func isPrivateOrLoopbackHost(raw string) bool {
+	host := hostOf(raw)
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
+}
+
 // isReserved covers ranges Go's net package does not classify itself:
 // 0/8, 100.64/10 (CGNAT), 192.0.2/24 (TEST-NET), 198.18/15, 240+/4.
 func isReserved(ip net.IP) bool {

@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,34 @@ import (
 	"sync"
 	"time"
 )
+
+// httpClientForEndpoint returns the *http.Client to use for calling ep.
+//
+// cs_rc_26.09.02_11 (Gea: "widget -> .189 proxy ... Post
+// \"https://192.168.2.189:8443/v1/chat/completions\": tls: failed to
+// verify certificate: x509: certificate signed by unknown authority"):
+// "Inhouse Provider" endpoints point at our OWN cs-proxy AI edge running on
+// a member (cs-proxy-src/ai.go), which always serves a self-signed cert --
+// there is no CA to verify against, by design (see cs-proxy-cert.pem
+// generation). Go's default http.Client rejects that outright. The Perl
+// fallback (aihelplib.pl::ai_provider_call) already special-cases this by
+// retrying with verify_SSL=>0 on an SSL/verify/CA error; this is the Go
+// daemon's equivalent, applied up front instead of via retry.
+//
+// Only relax verification when BOTH hold: the endpoint's host is a
+// loopback/private-LAN address (isPrivateOrLoopbackHost, ssrf.go), and the
+// user has already opted in to private endpoints (ssrf_allow_private=yes --
+// auto-set at Save time for any private-LAN provider endpoint, see
+// action.pl's Save handler and ai_list_provider_models() in aihelplib.pl).
+// A public-internet endpoint (api.openai.com etc.) always keeps full
+// certificate verification, whatever allowPrivate is.
+func httpClientForEndpoint(ep string, allowPrivate bool) *http.Client {
+	low := strings.ToLower(strings.TrimSpace(ep))
+	if allowPrivate && strings.HasPrefix(low, "https://") && isPrivateOrLoopbackHost(ep) {
+		return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	}
+	return &http.Client{}
+}
 
 // DefaultOpenRouterModel is used when openrouter_model is unset. OpenRouter's
 // roster of ":free" routes (zero-cost model variants, still gated by an
@@ -150,7 +179,7 @@ func callProvider(cfg *Config, system string, msgs []chatMsg) (string, error) {
 			model = "gpt-4o-mini"
 		}
 	}
-	client := &http.Client{}
+	client := httpClientForEndpoint(ep, cfg.SSRFAllowPrivate)
 	if kind == "anthropic" {
 		body := map[string]any{
 			"model": model, "max_tokens": answerMaxTokens, "system": system, "messages": msgs,
@@ -354,7 +383,7 @@ func providerAnswer(cfg *Config, system string, msgs []chatMsg, emit tokenEmitte
 		if kind == "ollama" {
 			a, err = ollamaNDJSONStream(ep, model, system, msgs, emit)
 		} else {
-			a, err = openaiSSEStream(ep, model, system, msgs, cfg.APIKey, emit)
+			a, err = openaiSSEStream(ep, model, system, msgs, cfg.APIKey, cfg.SSRFAllowPrivate, emit)
 		}
 		if err == nil && a == "" {
 			// cs_26.08.27 (Gea: "es sollten auch groessere logs oder viele
@@ -421,7 +450,7 @@ func ollamaNDJSONStream(ep, model, system string, msgs []chatMsg, emit tokenEmit
 
 // openaiSSEStream POSTs /chat/completions with stream:true and emits the
 // delta.content tokens from the SSE `data:` lines ([DONE] terminator).
-func openaiSSEStream(ep, model, system string, msgs []chatMsg, apiKey string, emit tokenEmitter) (string, error) {
+func openaiSSEStream(ep, model, system string, msgs []chatMsg, apiKey string, allowPrivate bool, emit tokenEmitter) (string, error) {
 	all := []chatMsg{{Role: "system", Content: system}}
 	all = append(all, msgs...)
 	b, _ := json.Marshal(map[string]any{"model": model, "messages": all, "max_tokens": answerMaxTokens, "stream": true})
@@ -433,7 +462,7 @@ func openaiSSEStream(ep, model, system string, msgs []chatMsg, apiKey string, em
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := httpClientForEndpoint(ep, allowPrivate).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -595,7 +624,7 @@ func freeOpenRouterStream(cfg *Config, system string, msgs []chatMsg, emit token
 		return "", errors.New("not configured (no openrouter_key set)")
 	}
 	return openaiSSEStream("https://openrouter.ai/api/v1/chat/completions",
-		openRouterModel(cfg), system, msgs, cfg.OpenRouterKey, emit)
+		openRouterModel(cfg), system, msgs, cfg.OpenRouterKey, false, emit)
 }
 
 // freePollinations uses the simple keyless GET endpoint (experimental).

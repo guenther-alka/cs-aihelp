@@ -25,7 +25,7 @@ func TestOpenaiSSEStream(t *testing.T) {
 
 	var toks []string
 	answer, err := openaiSSEStream(srv.URL, "m1", "sys",
-		[]chatMsg{{Role: "user", Content: "hi"}}, "key",
+		[]chatMsg{{Role: "user", Content: "hi"}}, "key", false,
 		func(t string) error { toks = append(toks, t); return nil })
 	if err != nil {
 		t.Fatalf("stream error: %v", err)
