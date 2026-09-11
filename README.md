@@ -1,4 +1,4 @@
-# cs-aihelp — AI Helpdesk for napp-it cs
+# cs-aihelp — AI Helpdesk for napp-it 4ai (client-server edition)
 
 A chat-based **AI helpdesk** that runs directly inside the
 [napp-it cs](https://napp-it.org) web-GUI. It answers napp-it questions
