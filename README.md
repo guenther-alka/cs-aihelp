@@ -5,6 +5,7 @@ A chat-based **AI helpdesk** that runs directly inside the
 grounded in the local documentation (`data/howto.ai/*.info`, light-RAG),
 optionally enriches the answer with a web search, and can be wired to a
 local or cloud LLM — with or without an API key.
+csweb-gui deploys and updates this manually per member menu About > Download cs-tools
 
 > **Version:** v1.2.2 (stable) · **License:** BSD 2-Clause · **Platform:** frontend on
 > any napp-it cs OS (FreeBSD, illumos, Linux, macOS, Solaris, Windows); the Go
