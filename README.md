@@ -21,11 +21,13 @@ csweb-gui deploys and updates this manually per member menu About > Download cs-
 > (`OLLAMA_BASE` / `provider=ollama` + endpoint) or an OpenAI-compatible
 > local server (e.g. llama.cpp).
 
-> **v1.2.7 is the current stable release** on GitHub — the pre-release/
-> release-candidate phase (v1.1.x) ended with v1.2.0. v1.2.6/v1.2.7 fix a
-> Windows console-exec reliability issue (ConPTY line-ending in the AI's
-> proposed-command channel) and a reasoning-model answer-token starvation
-> bug. See [CHANGELOG.md](CHANGELOG.md) for the full version history.
+> **⚠ Update to 1.2.7 required.** v1.2.6/v1.2.7 fix two bugs present in
+> every earlier v1.2.x build: Windows console-exec (`exec_access=console`)
+> never actually executing the AI's proposed commands (ConPTY line-ending),
+> and reasoning-model answers being cut to near-nothing (answer-token
+> starvation). **v1.2.7 is the current stable release** on GitHub — the
+> pre-release/release-candidate phase (v1.1.x) ended with v1.2.0. See
+> [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ---
 
