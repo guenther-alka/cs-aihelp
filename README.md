@@ -1,10 +1,17 @@
-# cs-aihelp — AI Helpdesk for napp-it cs
+# cs-aihelp — AI Helpdesk for napp-it 4ai (client-server edition)
 
 A chat-based **AI helpdesk** that runs directly inside the
 [napp-it cs](https://napp-it.org) web-GUI. It answers napp-it questions
 grounded in the local documentation (`data/howto.ai/*.info`, light-RAG),
 optionally enriches the answer with a web search, and can be wired to a
 local or cloud LLM — with or without an API key.
+
+Signed-off-by: Guenther Alka gea@napp-it.org<br>
+Concept Co-Authored-By: Claude Fable 5 noreply@anthropic.com<br>
+
+Part of the [napp-it 4ai (client-server edition)](https://napp-it.org) cluster tooling family
+(alongside [cs-tools](https://www.napp-it.org/cs-tools_en.html))
+csweb-gui deploys and updates this manually per member menu About > Download cs-tools
 
 > **Version:** v1.2.7 (stable) · **License:** BSD 2-Clause · **Platform:** frontend on
 > any napp-it cs OS (FreeBSD, illumos, Linux, macOS, Solaris, Windows); the Go
