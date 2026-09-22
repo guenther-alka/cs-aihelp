@@ -127,6 +127,30 @@ func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// authConsole is auth() without the per-IP rate limit. The cs-console relay
+// endpoints are a high-frequency heartbeat (poll ~4/s) plus a keystroke
+// channel (input per keypress) -- the generic per-IP token bucket (aimed at
+// /ask brute force) must not apply to them. They are already gated by
+// ai_console_allowed(), the OS password gate + cs-console's own lockout, and
+// server.pl's get_tty spawn throttle.
+func (s *server) authConsole(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.ipAllowed(r.RemoteAddr) {
+			http.Error(w, "forbidden: ip not allowed", http.StatusForbidden)
+			return
+		}
+		cfg := s.app.Config()
+		if cfg.AuthToken != "" {
+			tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if subtle.ConstantTimeCompare([]byte(tok), []byte(cfg.AuthToken)) != 1 {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
 func (s *server) cors(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := s.app.Config().CORSOrigin
@@ -154,6 +178,16 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("/reindex", s.cors(s.auth(s.handleReindex)))
 	mux.HandleFunc("/ask", s.cors(s.auth(s.handleAsk)))
 	mux.HandleFunc("/resume", s.cors(s.auth(s.handleResume)))
+	// cs-console relay (console.go) -- POLL + POST in, rate-limit-free auth
+	// (high-frequency heartbeat/keystroke channel, gated upstream)
+	mux.HandleFunc("/console/open", s.cors(s.authConsole(s.handleConsoleOpen)))
+	mux.HandleFunc("/console/input", s.cors(s.authConsole(s.handleConsoleInput)))
+	mux.HandleFunc("/console/close", s.cors(s.authConsole(s.handleConsoleClose)))
+	mux.HandleFunc("/console/poll", s.cors(s.authConsole(s.handleConsolePoll)))
+	mux.HandleFunc("/console/stream", s.cors(s.authConsole(s.handleConsoleStream)))
+	// cs_26.09.06 (AI Helpdesk console mode, Phase 1/2)
+	mux.HandleFunc("/console/ai-status", s.cors(s.authConsole(s.handleConsoleAIStatus)))
+	mux.HandleFunc("/console/exec", s.cors(s.authConsole(s.handleConsoleExec)))
 	return mux
 }
 
@@ -198,7 +232,9 @@ func (s *server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	var tags struct {
-		Models []struct{ Name string `json:"name"` } `json:"models"`
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
 	}
 	json.NewDecoder(resp.Body).Decode(&tags)
 	models := []string{}
@@ -366,4 +402,3 @@ func parsePort(addr string) int {
 	n, _ := strconv.Atoi(p)
 	return n
 }
-

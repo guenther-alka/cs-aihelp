@@ -86,7 +86,27 @@ const DefaultOpenRouterModel = "meta-llama/llama-3.1-8b-instruct:free"
 // handler (STATUS_AI_PROMPT_MAX) so the input itself also stays bounded
 // regardless of how many disks/how large the logs are -- max_tokens alone
 // cannot fix an unbounded input.
-const answerMaxTokens = 4096
+//
+// cs_26.09.22 (Gea, live reproduced: "zeige installierte Platten" in the
+// normal chat -- not the status button -- came back as a single "["
+// fragment, the model itself noting in its own visible text that prior
+// attempts produced no output). Same starvation pattern as above, just
+// triggered by ordinary chat context (system prompt + RAG doc snippets +
+// live_state + history) instead of the status dump, proving 4096 was
+// still not enough headroom. DeepSeek's own docs (api-docs.deepseek.com,
+// checked 2026.09.22) state a 64K-token max_tokens DEFAULT for their
+// thinking-mode requests (128K with reasoning_effort=max) and a 384K hard
+// ceiling -- our explicit 4096 was far below what the model expects to
+// spend on reasoning alone. Raised to 32768: generous headroom for
+// reasoning + a full answer/ACTION block, while staying well under the
+// output limits of the other providers sharing this same constant
+// (OpenRouter free-tier routes, the generic openai-compatible slot2
+// endpoint) so it does not risk a hard "max_tokens too large" rejection
+// there. Ollama's native path (ollamaNDJSONStream) does not send
+// max_tokens at all and is unaffected either way. If 32768 still is not
+// enough for a given provider/model, raise further -- there is no
+// technical ceiling here beyond timeouts and per-token cost.
+const answerMaxTokens = 32768
 
 // freeModeError builds a specific, actionable error for mode=free when all
 // fallback legs (local Ollama, OpenRouter, Pollinations) failed -- instead of

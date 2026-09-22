@@ -24,6 +24,21 @@ func TestParseAction(t *testing.T) {
 		t.Errorf("malformed block should not parse: %+v", a3)
 	}
 	_ = c3
+	// cs_26.09.06 regression: the model sometimes emits a stray quote before
+	// the closing tag ([[ACTION]]{...}"[[/ACTION]]) -- must still parse.
+	c4, a4 := parseAction("Ich führe whoami aus.\n[[ACTION]]{\"cmd\":\"whoami\",\"reason\":\"Konto ermitteln\"}\"[[/ACTION]]")
+	if a4 == nil || a4.Cmd != "whoami" {
+		t.Fatalf("stray-quote action = %+v", a4)
+	}
+	if !strings.Contains(c4, "Ich führe whoami aus.") || strings.Contains(c4, "[[ACTION]]") {
+		t.Errorf("stray-quote clean = %q", c4)
+	}
+	// both leading and trailing stray quotes
+	c5, a5 := parseAction("x [[ACTION]]\"{\"cmd\":\"id\",\"reason\":\"r\"}\"[[/ACTION]] y")
+	if a5 == nil || a5.Cmd != "id" {
+		t.Fatalf("wrapped-quote action = %+v", a5)
+	}
+	_ = c5
 }
 
 func TestExecHint(t *testing.T) {

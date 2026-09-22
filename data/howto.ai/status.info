@@ -1,0 +1,326 @@
+================================================================================
+  napp-it CS -- status.pl: system status snapshots for AI evaluation
+  File: data/howto.ai/status.info
+================================================================================
+
+1. OVERVIEW
+-----------
+status.pl collects compact, read-only status snapshots of a napp-it node and
+prints them as plain text -- designed to be handed to an AI for evaluation
+(e.g. as AI Helpdesk context). It never modifies anything; every command is
+status/health output only. No CPAN dependencies (File::Glob is core).
+
+  Script:   /opt/csweb-gui/data/cs_server/tools/scripts/status.pl
+  Short:    "status xxx"  -- a server.pl socket short command (cs_26.08.27),
+            NOT a separate wrapper script. See section 8 for the exact
+            protocol/implementation.
+
+2. QUICK REFERENCE
+------------------
+    status pool      ZFS pool health + capacity + I/O + all pool properties
+    status disk      smartmontools health of every detected disk
+    status cs        all *.log files in /opt/csweb-gui/tmp (newest first)
+    status jobs      all job files in /opt/csweb-gui/_cfg/jobs (newest first)
+    status os        OS-specific status snapshot (OS auto-detected)
+    status member    Clustergroup member roster: name/ip + TCP reachability
+                     on port 45000 + 5-char auth-key fingerprint
+
+3. COMMANDS IN DETAIL
+---------------------
+
+3.1 status pool -- storage pool status
+  ZFS nodes (illumos/Solaris/FreeBSD/Linux):
+    zpool status -v   pool state (ONLINE/DEGRADED/FAULTED), per-vdev READ/
+                      WRITE/CKSUM error counters, last known errors, scrub
+                      status -- the key diagnostic
+    zpool list -v     size / alloc / free / CAP / FRAG / DEDUP / HEALTH,
+                      plus the vdev layout below the pool
+    zpool iostat -v   operations and bandwidth per pool and per vdev
+    zpool get all     every pool property (ashift, autoreplace, expandsize,
+                      dedupratio, compression, ...)
+  Windows:            BOTH the ZFS status (zpool ... -- only if a ZFS build
+                      such as O3X is present) AND the Storage Spaces
+                      status: Get-StoragePool (pools + Health/Operational
+                      status + size/allocation), Get-VirtualDisk (virtual
+                      disks + ResiliencySettingName = Mirror/Parity/Simple
+                      + NumberOfColumns), the physical disks inside the
+                      pools (HealthStatus/MediaType), and Get-StorageJob
+                      (running repair/scrub jobs).
+
+3.2 status disk -- disk health via smartmontools
+  Detects disks via `smartctl --scan`, then `smartctl -a` per disk:
+    model / serial / firmware; SMART overall-health (PASSED/FAILED);
+    reallocated-sector / current-pending counts (ATA) or the NVMe Health
+    log (critical warning, available spare, % used, temperature); power-on
+    hours, power cycles, media & data-integrity errors; self-test log.
+  Windows particularity: disks are addressed as /dev/pdN (short for
+    \\.\PhysicalDriveN; N = the Get-PhysicalDisk DeviceId, falling back to
+    the --scan count). Without an elevated shell smartctl reports
+    "Open failed: ... Error=5" (access denied) for all non-system disks.
+  Returns "smartctl not found" if smartmontools is missing.
+
+3.3 status cs -- napp-it web-GUI logs
+  All *.log files in /opt/csweb-gui/tmp, newest first (by mtime), no *.lock
+  files. The combined tail of:
+    webserver.log / webserver_startup.log  HTTP + SSL handshake errors
+    http.log                               per-request status + latency
+    error.log                              socket/server errors
+    watchdog.log                           webserver kill/restart events
+    monitor.log / status.log               monitor + status checks
+    status_history.log                     history counters
+    admin_debug.log                        admin requests
+    cs-aihelp.log                          AI Helpdesk activity/errors
+    get_async.log / command.log / update.log / remote.log / s3.log /
+    ai_savekey_debug.log / activity.log
+  Each file is capped at the last 12000 chars.
+
+3.4 status jobs -- job state and definitions
+  All files in /opt/csweb-gui/_cfg/jobs, newest first, no *.lock files
+  (jobs.log.lock, <jobid>.last.lock, ...). Filename + content of every
+  <jobid>.final/.last/.log/.par/.progress/.receiver plus jobs.log, i.e.:
+    .par        job definition/parameters
+    .last       last run result
+    .log        run log
+    .final      request/final marker
+    .progress   replication progress
+    .receiver   replication receiver info
+  Each file is capped at the last 12000 chars.
+
+3.5 status os -- OS status snapshot
+  Prefixes the output with "OS: <detected>", then returns the command set
+  for the detected OS (see section 5). Read-only status, nothing changed.
+  For INTERPRETING a "status os" snapshot (what is normal, red flags, how
+  to structure the analysis) see data/howto.ai/status-os-guide.info.
+  Every command set ends with a PROCESS SNAPSHOT (cs_26.08.27): the top
+  processes by memory (ps --sort=-rss / ps -r / prstat / Get-Process) and
+  the napp-it daemons webserver.pl / server.pl / monitor.pl / watchdog.pl
+  (on Windows: the running perl.exe daemons) with PID + RSS.
+  Windows additionally reports the System event-log errors (Level 1/2,
+  last hour), the Kernel-Power events (41/1074/6008 -- reboot/crash
+  cause) and the Application event-log errors (Level 1/2, last hour). All
+  Get-WinEvent calls use -ErrorAction SilentlyContinue so an empty log is
+  silently empty instead of raising "No events were found".
+
+3.6 status member -- Clustergroup member roster (cs_26.08.27)
+  Lists every configured Clustergroup member from
+  /opt/csweb-gui/_cfg/group/*.txt filenames (localhost first, then sorted,
+  *.lock files skipped) -- same source and order the "45_Clustergroup" GUI
+  overview itself uses. For each member: name, ip, a plain TCP
+  reachability probe on port 45000 (server.pl's own listen port; 2s
+  timeout; "open"/"closed"/"error"), and a 5-character fingerprint of the
+  member's shared auth secret (_cfg/group/<member>.txt's content) -- NEVER
+  the full secret, matching exactly what the GUI overview itself already
+  exposes (see 45_Clustergroup/action.pl's own "$t=substr($t,0,5)").
+  This is a plain TCP connect check, NOT the encrypted "on"/&socket()
+  status query the GUI overview uses for its os/cs_ver/zfs_ver/sync
+  columns -- that needs socketlib.pl's crypto stack, deliberately not
+  pulled into this dependency-free script. "closed"/"error" only tells you
+  the member isn't reachable on that port; it does not distinguish offline
+  vs. firewalled vs. wrong auth.
+
+4. OS AUTO-DETECTION
+--------------------
+Windows is detected via Perl's $^O (MSWin32); all other systems via
+`uname -s`:
+  Linux    -> "proxmox" if /etc/pve exists or pveversion is present,
+              otherwise "linux"
+  FreeBSD  -> "freebsd"
+  SunOS    -> "sunos"   (illumos / Solaris / SmartOS)
+  Darwin   -> "darwin"  (macOS)
+  anything else -> "unknown" (falls back to uname -a; uptime; df -h)
+
+5. OS-SPECIFIC COMMAND SETS (status os)
+---------------------------------------
+FreeBSD:
+  uname -a; uptime; sysctl hw.ncpu hw.physmem; top -b -d 1 | head -15;
+  vmstat 1 2; swapinfo -h; df -h; zpool status -v; zpool iostat -v;
+  iostat -x 1 2; netstat -i; dmesg | grep -iE 'error|fail' | tail -30;
+  tail -40 /var/log/messages; for s in $(service -e); do service $s
+  onestatus >/dev/null 2>&1 || echo "FAILED: $s"; done;
+  grep -iE 'failed|authentication' /var/log/auth.log | tail -10;
+  sysctl -a | grep -i temperature
+
+Linux (generic):
+  uptime; free -h; df -h; systemctl --failed 2>/dev/null;
+  journalctl -p err -b --no-pager 2>/dev/null | tail -20;
+  dmesg -T 2>/dev/null | grep -iE 'error|fail' | tail -30;
+  iostat -x 2>/dev/null || iostat 2>/dev/null
+
+Proxmox VE (generic Linux status + Proxmox specifics):
+  uptime; free -h; df -h; systemctl --failed 2>/dev/null;
+  journalctl -p err -b --no-pager 2>/dev/null | tail -20;
+  dmesg -T 2>/dev/null | grep -iE 'error|fail' | tail -30;
+  iostat -x 2>/dev/null || iostat 2>/dev/null;
+  pveversion; pvecm status; qm list; pct list; pvesm status;
+  journalctl -u pve-cluster -u corosync -u pveproxy -p err -b --no-pager
+  | tail -20; ha-manager status
+
+illumos / Solaris (fmd fault log included):
+  uname -a; uptime; prtconf | grep -i memory; prstat -a 1 2 | head -15;
+  vmstat 1 2; swap -l; df -h; iostat -xn 1 2; netstat -i;
+  dmesg | grep -iE 'error|fail' | tail -30; tail -40 /var/adm/messages;
+  fmadm faulty; fmdump -v | tail -20; svcs -xv | head -30;
+  grep -iE 'failed|authentication' /var/adm/messages | tail -10
+
+macOS:
+  sw_vers; uname -a; uptime; sysctl -n machdep.cpu.brand_string hw.ncpu
+  hw.memsize; vm_stat; top -l 1 -n 15 | head -15; df -h; iostat -d 1 2;
+  netstat -i; log show --last 30m --style compact --level error | tail -40;
+  dmesg | tail -30; launchctl list | grep -v com.apple; last | head -20
+
+Windows (PowerShell):
+  OS caption/version/build + uptime + RAM (total/free); CPU model + load;
+  failed automatic services; top-15 processes by memory (RSS) plus the
+  perl.exe napp-it daemons; System event-log errors of the last hour;
+  Kernel-Power events (reboot/crash cause); Application event-log errors
+  of the last hour; network adapter errors/discards. All read-only.
+
+6. PARTICULARITIES
+------------------
+- status pool on Windows returns the ZFS status (zpool, if a ZFS build
+  such as O3X is present) AND the Storage Spaces status (concatenated).
+- status os on Proxmox returns the generic Linux status AND the Proxmox
+  specifics (both blocks are concatenated).
+- status disk on Windows uses /dev/pdN (PhysicalDriveN) -- see 3.2.
+- illumos/Solaris os includes the fmd fault log (fmadm faulty + fmdump -v),
+  macOS os the unified log (log show), Windows os the System event log.
+- status os on every OS ends with a process snapshot (top memory + the
+  napp-it daemons); Windows additionally reports the Kernel-Power and
+  Application event logs. All Get-WinEvent calls use
+  -ErrorAction SilentlyContinue (empty logs are silently empty, not an
+  error).
+- Output caps: "cs" and "jobs" cap each file at 12000 chars; pool/disk/os
+  return the raw tool output.
+
+7. NOTES / REQUIREMENTS
+-----------------------
+- Some parts need root/admin to produce full output (journalctl, fmdump,
+  log show, Get-WinEvent on the Security log, smartctl on Windows
+  PhysicalDrive devices). status.pl simply runs with whatever privileges
+  the invoking user has.
+- status disk locates smartctl via `which` (Unix) or PowerShell
+  Get-Command (Windows); without an elevated Windows shell smartctl
+  reports "Open failed: ... Error=5" (access denied) for non-system disks.
+- On the illumos/FreeBSD server, make the script executable once:
+      chmod +x /opt/csweb-gui/data/cs_server/tools/scripts/status.pl
+
+8. SERVER.PL SHORT COMMAND -- "status xxx" (cs_26.08.27)
+----------------------------------------------------------
+Gea: "neuer kurzbefehl in server.pl: 'status xxx' mit xxx=pool,disk,os,cs,
+jobs. server.pl ruft dann mit eval status.pl auf mit parameter und gibt
+ergebnis zurueck." Same day, follow-up: "bitte noch status member
+hinzufuegen (in status.pl integriert)" -- "member" added as a 6th class,
+see 3.6. Follow-up "kernel + application bei status os (windows) mit
+aufnehmen": Windows os now also reports the Kernel-Power and the
+Application event logs (all Get-WinEvent calls with
+-ErrorAction SilentlyContinue), and every os command set ends with a
+process snapshot (top memory + napp-it daemons) -- see 3.5.
+  Follow-up "Sind da systemlogs dabei, alle os eg dmesg probleme linux?":
+  Linux/Proxmox previously only had journalctl -- dmesg -T (kernel ring
+  buffer: OOM, I/O errors, hardware) is now included there too, matching
+  FreeBSD/Solaris/macOS.
+
+Implemented directly in server.pl's socket command dispatcher (the same
+place as the existing "hi"/"on"/"mver" short commands), NOT as a separate
+wrapper executable:
+
+  Location:  data/cs_server/server.pl, in the "short cmds always processed
+             directly after auth verification" block, right after the
+             "mver" handler.
+  Match:     $q =~ /^status\s+(pool|disk|os|cs|jobs|member)$/   -- a single
+             whitelisted word after "status "; anything else (typo, extra
+             args, unknown class) falls through, unmatched, to the normal
+             command path instead of running status.pl.
+  Call:      run [$^X, "$spath/tools/scripts/status.pl", $arg], \undef,
+             \$out, \$err, timeout( STATUS_RUN_TIMEOUT_SECS );  -- IPC::Run
+             with a hard 55s timeout (see the cs_26.08.27 UPDATE note
+             below; originally a bare "eval { backticks }" with no
+             timeout, changed after Gea asked "gibt es einen timeout fuer
+             status.pl?"). $^X is the running Perl interpreter's own
+             path, so this works whether perl is Strawberry (Windows) or
+             the system perl (illumos/FreeBSD/Linux) without depending
+             on PATH.
+  Returns:   status.pl's plain-text stdout+stderr (2>&1) verbatim as the
+             socket response, exactly like every other server.pl short
+             command.
+
+GOTCHA (cs_26.08.27, live-confirmed, cost real debugging time): matching
+"status xxx" in server.pl is NOT enough on its own -- the CALLER-side
+socketlib.pl (data/menues/_lib/windows/socketlib.pl, &socket()) decides
+BEFORE sending whether a command goes as plain text or gets base64-wrapped
+("b64cmd:..."), using its OWN separate whitelist regex (in 3 places in
+that file):
+  /^(?:hostname|hn|sc|rh|on|hi|os|dn|ip|fn|alive|stat|status|mem|mver|
+     monitorupdate)\b/
+This originally had "stat", NOT "status" -- and "stat\b" does NOT match
+"status pool" (no word boundary between "stat" and the following "us").
+Result: "status pool" got base64-encoded and arrived at server.pl as
+"b64cmd:...", ONE STEP BEFORE server.pl's own "b64cmd:" decode (which
+runs AFTER the "status xxx" match point) -- so the short-command match
+never fired, and the (still-encoded, unrecognized) command fell all the
+way through to the generic PowerShell exec fallback, which tried to run
+"status" as a literal cmdlet name ("The term 'status' is not
+recognized..."). Fixed by adding "status" to socketlib.pl's whitelist
+regex in all 3 places. LESSON: any NEW server.pl short-command prefix
+needs a matching entry in socketlib.pl's is_status whitelist too, or it
+will silently get base64-wrapped and never reach its handler.
+
+Trust model: "status xxx" is a FIXED, hardcoded command set -- the
+argument is whitelisted to exactly the 6 known classes before status.pl is
+even invoked, so nothing caller-supplied ever reaches a shell. It is
+therefore in the same trust class as "hi"/"on"/"sc"/"mver" (always
+answered after the socket's own auth+IP check, no further gate) -- it is
+NOT part of, and not gated by, the AI-exec pipeline
+(ai_exec_validate()/ai_exec_allowed()/exec_deny in aihelplib.pl) that
+guards arbitrary AI-composed commands reaching server.pl's separate
+"run cmd -> file" dispatcher further down. Unlike "hi"/"on" (excluded from
+command.log to cut noise from per-refresh pings), "status" calls ARE
+logged to command.log -- they are on-demand diagnostic calls, not a
+polling heartbeat.
+
+"status member" specifically: it reads _cfg/group/*.txt, the same files
+that hold each Clustergroup member's shared auth secret (a single opaque
+string, no other structure) -- see 3.6. Only a 5-char fingerprint is ever
+returned, matching the existing Clustergroup GUI overview's own exposure
+level exactly (grouplib's "45_Clustergroup/action.pl" already does the
+identical substr(...,0,5) truncation for its "auth" column) -- this
+command adds no new secret exposure beyond what any admin/operator
+session could already see in that GUI.
+
+Client-side call (from Perl, e.g. an action.pl), same &socket() used for
+every other short command:
+    my $out = &socket("status pool", $member_ip, 60);
+
+UPDATE (cs_26.08.27, same day): the AI Helpdesk now DOES call this
+automatically -- cs-aihelp.pl's action=status endpoint calls exactly the
+&socket() line above (60s timeout) for one of the 6 classes, then wraps
+the result into a prompt ("analyse <class> on <member>: ..." plus an
+explicit "answer directly, do not propose further commands" instruction)
+and forwards it to the AI via the normal /ask flow. Widget and full page
+both show 6 small buttons (Pool/Disk/OS/CS/Jobs/Member,
+ai_status_buttons_html() in aihelplib.pl) wired to this endpoint via JS
+_aiStatusFetch(). See ai-helpdesk.info for the full UI/endpoint writeup.
+
+UPDATE (cs_26.08.27, Gea: "gibt es einen timeout fuer status.pl?" / "wie
+macht server.pl normalerweise timeout" / "ja"): the paragraph above (bare
+backtick, no timeout) is OUTDATED -- status.pl's own subcommands have no
+internal timeout of their own (only "status member"'s TCP reachability
+probe uses one, 2s/member, see section 3.6 above), and a hang there used
+to be able to block server.pl's single request thread forever. Switched
+to the SAME IPC::Run pattern server.pl already uses for its general
+Windows exec pipeline (the "ipc run" branches further down in server.pl,
+loaded from the vendored data/cs_server/CGI/IPC/Run.pm via the @INC push
+in the file's own BEGIN block -- no CPAN install needed, and confirmed
+NOT present in the plain system Perl):
+
+  run [$^X, $script, $arg], \undef, \$out, \$err, timeout( STATUS_RUN_TIMEOUT_SECS );
+
+STATUS_RUN_TIMEOUT_SECS => 55 (new entry in server.pl's existing
+"use constant {...}" block, next to SOCKET_TIMEOUT) -- a few seconds
+under cs-aihelp.pl's own 60s socket timeout for action=status
+(&socket("status $class", $ip, 60)), so a hang is always reported by
+server.pl itself (a clear "status $arg timeout/error: ..." message) and
+never left running as an orphaned process racing the caller's own
+timeout. stderr is still merged into the returned text, matching the old
+"2>&1" behaviour. Verified with a standalone script (same @INC push +
+IPC::Run call against "status.pl os"): 5993 bytes returned, no error.

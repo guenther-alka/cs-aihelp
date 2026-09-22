@@ -1,5 +1,94 @@
 # Changelog
 
+## v1.2.7 (2026-09-22, Go only) -- AI console commands never executed on Windows (ConPTY line-ending)
+
+- **Trigger**: even after v1.2.6's `answerMaxTokens` fix was confirmed live
+  (clean SSE stream, no truncation), Gea kept seeing "[" / near-empty
+  answers for "zeige installierte Platten". The model's own visible text
+  eventually revealed the actual problem: it had tried `Get-PhysicalDisk`,
+  `Get-CimInstance`, `wmic diskdrive list brief` and `smartctl --scan` in
+  successive turns and received NO output back from any of them, and once
+  reported the command arriving mangled as `Get-Diskecho` -- i.e. the
+  execution channel itself, not the answer-token budget, was still broken.
+- **Root cause (console.go, `execCommand()`)**: the AI Helpdesk's
+  `exec_access=console` mode types the model's proposed command as literal
+  keystrokes into an already-open interactive console session (dialing the
+  separate `cs-console` process, not spawning a new one), then writes a
+  sentinel `echo <marker>` line and waits for it in the PTY output.
+  `execCommand()` terminated both writes with a bare `"\n"`. On a Windows
+  member this console is a real ConPTY (ConHost) session, where Enter is
+  CR, not LF -- `data/howto.ai/cs-console.info` had already documented,
+  for a *different* code path (`cs-console`'s own password-gate
+  automation), that a bare `"\n"` is CONFIRMED to never submit a line on
+  ConPTY; the input just sits in the shell's buffer. `console.go`'s
+  daemon-side exec path was never ported to that fix. Consequence: the
+  AI's command line never actually submitted, so the very next write (the
+  `echo` sentinel) landed appended onto the same still-open input line --
+  reproducing the exact `Get-Diskecho`-style mangling reported live -- and
+  since neither line ever executed, no output ever came back, for every
+  command variant tried, until `execCommand()`'s own timeout fired.
+- **Fix**: `server.pl`'s `_get_tty` now includes the member's `platform`
+  (already computed there via `_server_platform()`) in its JSON result;
+  `cs-console.pl` forwards it as `platform` in the `/console/open` body
+  (both the human System > Console path and the AI Helpdesk path);
+  `console.go` stores it per session (`consoleSession.windows`) and adds a
+  `lineEnding()` helper (`"\r\n"` for a Windows member, unchanged `"\n"`
+  otherwise -- mirrors `cs-console.info`'s own platform split rather than
+  switching unconditionally, so already-verified POSIX behavior is
+  untouched). `execCommand()` now writes `cmd+lineEnding()` and
+  `"echo "+marker+lineEnding()` instead of a bare `"\n"`.
+- **Verification**: `gofmt -l` clean for the changed file, `go vet ./...`
+  clean, `go test ./...` all pass. Perl syntax OK for `server.pl` and
+  `cs-console.pl`. Live end-to-end console-exec verification (daemon
+  redeployed, a real `[[ACTION]]` disk-listing command actually producing
+  output) still pending as of this entry -- see `c:\opt\changelog.txt`
+  for the live-test result once run.
+- **Related**: `data/howto.ai/cs-console.info` (ConPTY line-ending
+  finding, the precedent this fix follows), v1.2.6 below (the separate,
+  already-fixed `answerMaxTokens` issue that was masking this one).
+
+## v1.2.6 (2026-09-22, Go only) -- reasoning-model answers cut to near-nothing in normal chat (not just the status button)
+
+- **Trigger** (Gea, live in the AI Helpdesk chat, reproduced twice): asking
+  "zeige installierte Platten" came back as a single `[` character. The
+  second live occurrence showed the model's OWN visible text explaining it
+  was retrying with "einem vereinfachten, robusteren Befehl" because a
+  prior attempt had produced no output -- i.e. the model itself was aware
+  this kept happening.
+- **Root cause (provider.go, `answerMaxTokens`)**: the same starvation
+  pattern already fixed once for the status-button case (see the v1.2.x
+  history below, cs_26.08.27) -- a reasoning-capable model (DeepSeek
+  "v4-flash") spends part of its token budget on a hidden
+  `reasoning_content` phase before writing the visible `content`/action
+  block. `answerMaxTokens` was raised 1024->4096 back then, but 4096 is
+  still not enough headroom once the request carries normal chat context
+  (system prompt + RAG doc snippets + live_state + history), not just a
+  status dump. DeepSeek's own API docs (api-docs.deepseek.com, checked
+  2026-09-22) state a 64K-token DEFAULT `max_tokens` for their
+  thinking-mode requests (128K with `reasoning_effort=max`), so our
+  explicit 4096 was drastically below what the model expects to spend on
+  reasoning alone -- it was clipping mid-"thought", before any/most of the
+  visible answer.
+- **Fix**: `answerMaxTokens` 4096 -> 32768. Kept below DeepSeek's own 64K
+  default (headroom for the model, but avoids risking a hard rejection
+  from the other providers that share this same constant -- OpenRouter
+  free-tier routes, the generic openai-compatible slot2 endpoint -- which
+  may cap max output tokens lower). Ollama's native streaming path
+  (`ollamaNDJSONStream`) sends no `max_tokens` at all and is unaffected.
+  If 32768 still proves insufficient for a given provider/model, raise
+  further -- no technical ceiling beyond per-request timeout/cost.
+- **Verification**: `go vet ./...` clean; `go test ./...` -- all existing
+  tests (config_test.go, exec_test.go, history_test.go, lifecycle_test.go,
+  provider_test.go, provider_stream_test.go, rag_test.go, ssrf_test.go)
+  pass. NOT live-reproduced against the new build yet -- deploy was
+  blocked in this session (see napp-it cs changelog.txt cs_rc_26.09.21.34
+  for why) and needs Gea to finish it locally with admin rights.
+- **Related, same session**: the AI Helpdesk chat UI's "Quellen: ..."
+  sources listing was removed (napp-it cs side, aihelplib.pl, not this Go
+  project) because it was showing unrelated web-research links (DuckDuckGo
+  results for the ambiguous German word "Platten") -- unrelated to this
+  fix, but reported/found in the same live session.
+
 ## v1.2.5 (2026-09-02, Go only) -- streaming chat requests had no HTTP timeout, could hang forever
 
 - **Trigger** (Gea, live-test of AI Helpdesk / imageindex / Media

@@ -1,0 +1,115 @@
+================================================================================
+  napp-it CS -- How to read a "status os" snapshot (interpretation guide)
+  File: data/howto.ai/status-os-guide.info
+================================================================================
+
+PURPOSE
+-------
+status.pl's "status os" returns a read-only OS status snapshot of a napp-it
+node or a Clustergroup member (see status.info for the TOOL reference:
+commands, OS detection, particularities). This file is the INTERPRETATION
+GUIDE for that output: what each section means, what is normal, what is a
+red flag, and how to structure a status analysis answer. Use it whenever
+the user asks to analyse/interpret a "status os" snapshot or an OS status
+question. The snapshot is live DATA -- interpret it, never invent values;
+if a metric is missing or a section did not run (e.g. permission denied),
+say so explicitly.
+
+OUTPUT STRUCTURE (per OS family)
+--------------------------------
+Every "status os" snapshot starts with "OS: <detected>", then the
+OS-specific command output:
+  Linux/Proxmox: uptime/load, RAM (free), disk (df), failed systemd units,
+    boot errors (journalctl -p err -b), kernel errors (dmesg), iostat,
+    processes; Proxmox adds pveversion, pvecm status, qm/pct list, pvesm
+    status, pve-cluster/corosync/pveproxy errors, ha-manager status.
+  FreeBSD: kernel/uptime, CPUs/RAM (top/vmstat/swapinfo), disk, zpool,
+    iostat, netstat, kernel errors (dmesg), /var/log/messages, FAILED rc.d
+    services, auth failures, CPU temperatures, processes.
+  illumos/Solaris: RAM (prtconf/prstat/swap), disk, zpool, iostat -xn,
+    netstat, kernel errors, /var/adm/messages, the fmd fault log
+    (fmadm faulty, fmdump -v), SMF problems (svcs -xv), auth failures,
+    prstat top-processes.
+  macOS: version (sw_vers), CPU/RAM (sysctl/vm_stat), top, disk, iostat -d,
+    netstat, unified-log errors (log show), dmesg, launchd services,
+    logins (last), processes.
+  Windows: OS caption/version/build/uptime/RAM, CPU, stopped auto
+    services, top-15 processes + perl.exe daemons, System event-log errors
+    (1h), Kernel-Power events (reboot/crash), Application event-log errors
+    (1h), network adapter errors/discards.
+
+INTERPRETATION BY AREA
+----------------------
+1. Uptime / load
+   - Load average above ~1.0 per core sustained = overloaded; a short load
+     spike after boot is normal. Very short uptime (< 10 min) often means
+     a recent crash/reboot -- cross-check Kernel-Power (Windows), dmesg/
+     journalctl (Linux), fmd (illumos) for the cause.
+2. Memory / swap
+   - Little free RAM alone is NOT a problem on Linux (page cache); watch
+     "available" (free -h) / swap usage / %used in top/prstat instead.
+     Persistent swap I/O or high prstat/ps RSS of webserver.pl, server.pl,
+     monitor.pl = memory pressure (see status.info: monitor tracks their
+     RSS against limits).
+3. Disk usage / ZFS (pool data comes from "status pool", but df shows
+   overflow risk)
+   - Filesystem at/above ~90-95 % = risk; napp-it keeps tmp/ and
+     logs in /opt/csweb-gui/tmp. On ZFS members, prefer "status pool"
+     (capacity, vdev health, CKSUM) over df.
+4. CPU / processes
+   - Top-15 by memory: the napp-it daemons (webserver.pl, server.pl,
+     monitor.pl, watchdog.pl / perl.exe on Windows) should be present and
+     bounded; a missing daemon or one process pinned at ~100 % CPU is a
+     red flag.
+5. I/O
+6. Network
+   - netstat -i / Get-NetAdapterStatistics: RX/TX errors, drops, colls
+     growing = link/MTU/driver issue. interface DOWN = service outage.
+7. Kernel / system logs
+   - Linux: journalctl -p err -b + dmesg -- OOM-killer, I/O errors (ext4/
+     XFS/nvme), device resets, hung tasks, firmware errors are red flags.
+   - Proxmox: corosync/pve-cluster errors = cluster/Quorum problems;
+     pvesm inactive = storage missing for guests.
+   - illumos/Solaris: fmadm faulty shows ACTIVE hardware faults (highest
+     priority), fmdump -v the history; svcs -xv lists maintenance/offline
+     SMF services.
+   - macOS: log show --level error; look for repeated panic/kernel/crash
+     events and disk arbitration errors.
+   - Windows: System Level 1/2 (1h), Kernel-Power events 41 (unexpected
+     power loss) / 1074 (clean reboot + who/why) / 6008 (dirty shutdown),
+     Application Level 1/2 (1h) = app crashes.
+8. Services / daemons
+   - systemctl --failed (Linux/PVE), FAILED rc.d loop (FreeBSD),
+     svcs -xv (illumos), launchctl non-apple (macOS), stopped Automatic
+     services (Windows) -- investigate every failing service, not only
+     the napp-it ones.
+9. napp-it specifics
+   - The web-GUI daemons should run: webserver.pl (HTTP), server.pl
+     (socket backend :45000), monitor.pl (status checks), watchdog.pl.
+     Repeated watchdog "webserver unresponsive ... killing" entries or
+     "socket auth wrong" errors (see status cs / error.log) point to
+     auth/credential or stale-daemon problems.
+
+RED FLAGS (cross-OS)
+--------------------
+- Any critical/kernel/fault-log entry: OOM, I/O error, disk reset,
+  corosync/pve-cluster error, fmadm fault, Kernel-Power 41, dirty
+  shutdown, hardware/firmware warning.
+- A stopped/failed napp-it daemon (webserver.pl / server.pl / monitor.pl /
+  watchdog.pl or their OS service equivalents).
+- Sustained load > cores, sustained %util > 90 %, filesystems > 95 %,
+  swap pressure, growing network error counters.
+- Very recent reboot without a documented cause.
+
+ANSWER STRUCTURE
+----------------
+Answer in this order: (1) overall verdict in one sentence, (2) per-area
+findings with the concrete numbers from the snapshot, (3) red flags
+grouped by severity, (4) recommended next commands (status pool, status
+disk, status cs, status member) or checks. Only use values that are in
+the snapshot; if the snapshot lacks an area, state that it is not covered
+instead of guessing.
+
+   - iostat %util > ~90 % sustained or avgqu-sz growing = storage
+     bottleneck; %iowait high while CPU idle = disk-bound. On ZFS, also
+     check zpool iostat (ops/bandwidth) via "status pool".

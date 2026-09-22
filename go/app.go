@@ -85,8 +85,21 @@ func parseAction(s string) (string, *Action) {
 	if m == nil {
 		return s, nil
 	}
+	inner := strings.TrimSpace(m[1])
 	var a Action
-	if json.Unmarshal([]byte(m[1]), &a) == nil && a.Cmd != "" {
+	// Some models wrap the JSON block in a stray quote or append trailing junk
+	// (observed live: [[ACTION]]{...}"[[/ACTION]] with an extra `"` before the
+	// closing tag), which breaks a straight json.Unmarshal. Try the exact
+	// inner text first, then fall back to the span from the first '{' to the
+	// last '}' so surrounding quotes/trailing junk are ignored.
+	if json.Unmarshal([]byte(inner), &a) != nil || a.Cmd == "" {
+		if lo := strings.Index(inner, "{"); lo >= 0 {
+			if hi := strings.LastIndex(inner, "}"); hi > lo {
+				_ = json.Unmarshal([]byte(inner[lo:hi+1]), &a)
+			}
+		}
+	}
+	if a.Cmd != "" {
 		s = strings.TrimSpace(actionBlockRe.ReplaceAllString(s, ""))
 		return s, &a
 	}
@@ -145,11 +158,22 @@ func execHintFor(cfg *Config) string {
 		"Prefer a read-only check first (is it already installed/running?) before proposing an " +
 		"install. If a command has no non-interactive form, explain that to the user instead of " +
 		"proposing it. "
+	const actAndEvaluateConsole = "You have DIRECT command execution available in this session through a real " +
+		"interactive shell (an OS root/admin console is open on the target member). You are not limited to " +
+		"describing what the user should type. When the user asks to DO something, ACT: end your answer with " +
+		"a JSON block: [[ACTION]]{\"cmd\":\"<command>\",\"reason\":\"<why>\"}[[/ACTION]] instead of writing " +
+		"instructions for the user to run it themselves. One command per block. The system runs it in the " +
+		"live shell and returns the output to you as DATA on your next turn -- read and evaluate that output " +
+		"yourself, then propose the next command or give the final answer. You have a full interactive shell " +
+		"(multi-step workflows are possible), but still prefer non-interactive/silent flags so a command never " +
+		"hangs waiting for a prompt: \"apt-get install -y\", \"yum/dnf install -y\", \"pkg install -y\", " +
+		"\"choco install -y\", \"msiexec /quiet\", \"winget install --silent --accept-package-agreements --accept-source-agreements\". " +
+		"Only skip the ACTION block for purely informational questions that need no system change or lookup."
 	switch cfg.ExecAccess {
 	case "exec":
 		return actAndEvaluate + "Allowed command classes: " + strings.Join(cfg.ExecAllow, ", ")
 	case "console":
-		return actAndEvaluate + "(remote console: arbitrary shell)"
+		return actAndEvaluateConsole
 	default:
 		return ""
 	}
